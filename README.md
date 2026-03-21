@@ -9,6 +9,68 @@ Google Sheets/Manual Input → Gemini AI → Gmail API → Personalized Emails
 
 ---
 
+## 🔄 How It Works
+
+### Step-by-Step Flow:
+
+```
+1. INPUT
+   ├─ Google Sheets (Public URL) 
+   │  └─ Columns: email, name, company, job_position, resume_link
+   │
+   └─ Manual Entry (Web Form)
+      └─ Browser mein directly add karo
+
+2. DATA EXTRACTION
+   ├─ Sheet se CSV format mein data fetch
+   ├─ Flexible column matching (email/mail, name/full name, etc.)
+   └─ Normalize karo: name, email, company, position, resume
+
+3. AUTHENTICATION
+   ├─ Gmail API (cred.json se)
+   │  └─ First time: Browser login → token.pickle save
+   │  └─ Next time: Automatic authentication
+   │
+   └─ Gemini API (.env se)
+
+4. CONTENT GENERATION
+   ├─ Gemini AI se personalized email
+   │  ├─ Job position ke according customized
+   │  ├─ Company-specific content
+   │  └─ Professional tone
+   │
+   └─ Fallback Template (if Gemini fails)
+      └─ Same data use karke professional email
+
+5. EMAIL SENDING
+   ├─ Gmail API se send (your personal Gmail)
+   ├─ Custom subject line (position-based)
+   ├─ Rate limiting (5-10 sec delay)
+   └─ Real-time progress tracking
+
+6. LOGGING
+   ├─ sent_emails.json mein save
+   ├─ Timestamp, recipient details
+   ├─ Success/failure status
+   └─ Message IDs
+```
+
+### Example Flow:
+
+```
+HR Sheet URL Input
+    ↓
+Extract: Rahul | hr@abc.com | ABC Corp | Software Engineer | resume.com
+    ↓
+Gemini AI: "Hi Rahul, I'm interested in Software Engineer at ABC Corp..."
+    ↓
+Gmail API: Send from himanshuyada70@gmail.com
+    ↓
+Log: ✅ Sent successfully (Message ID: xyz123)
+```
+
+---
+
 ## 🎯 Features
 
 - ✅ **Web Interface** - No terminal commands needed
