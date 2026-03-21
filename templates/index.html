@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📧 Email Automation System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #5568d3;
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #48bb78;
+        }
+        
+        .btn-secondary:hover {
+            background: #38a169;
+        }
+        
+        .recipient-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: end;
+        }
+        
+        input[type="url"], input[type="email"] {
+            font-size: 13px;
+        }
+        
+        .btn-remove {
+            background: #f56565;
+            padding: 12px 16px;
+        }
+        
+        .btn-remove:hover {
+            background: #e53e3e;
+        }
+        
+        .btn-add {
+            background: #48bb78;
+            margin-top: 10px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .status.success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        
+        .status.error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+        
+        .status.info {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+        
+        .preview-box {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: #e0e0e0;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .tab.active {
+            background: white;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📧 Email Automation System</h1>
+            <p>Google Sheets/Manual → Gemini AI → Gmail</p>
+        </div>
+        
+        <!-- Configuration Card -->
+        <div class="card">
+            <h2>⚙️ Configuration</h2>
+            <div class="form-group">
+                <label>Your Name</label>
+                <input type="text" id="yourName" placeholder="Enter your full name">
+            </div>
+            <div class="form-group">
+                <label>Your Email</label>
+                <input type="email" id="yourEmail" placeholder="your.email@gmail.com">
+            </div>
+            <div class="form-group">
+                <label>Resume Link</label>
+                <input type="url" id="resumeLink" placeholder="https://your-resume-link.com">
+            </div>
+            <div class="form-group">
+                <label>Gemini API Key</label>
+                <input type="password" id="geminiKey" placeholder="Enter Gemini API key (optional)">
+            </div>
+            <div class="form-group">
+                <label>Email Delay (seconds)</label>
+                <input type="number" id="emailDelay" value="5" min="3" max="30">
+            </div>
+            <div class="form-group">
+                <label>Google Sheet URL (Public Sheet)</label>
+                <input type="url" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    ℹ️ Sheet must be public. Columns: name, email, company
+                </small>
+            </div>
+            <button class="btn" onclick="saveConfig()">💾 Save Configuration</button>
+            <button class="btn btn-secondary" onclick="testEmail()" style="margin-left: 10px;">🧪 Send Test Email</button>
+            <div id="configStatus"></div>
+        </div>
+        
+        <!-- Recipients Card -->
+        <div class="card">
+            <h2>👥 Recipients</h2>
+            
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('manual')">Manual Entry</button>
+                <button class="tab" onclick="switchTab('sheets')">Google Sheets</button>
+            </div>
+            
+            <!-- Manual Entry Tab -->
+            <div id="manual-tab" class="tab-content active">
+                <div id="recipientsList">
+                    <div class="recipient-row" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto;">
+                        <div>
+                            <label>Name</label>
+                            <input type="text" class="recipient-name" placeholder="Name">
+                        </div>
+                        <div>
+                            <label>Email</label>
+                            <input type="email" class="recipient-email" placeholder="email@example.com">
+                        </div>
+                        <div>
+                            <label>Company</label>
+                            <input type="text" class="recipient-company" placeholder="Company Name">
+                        </div>
+                        <div>
+                            <label>Job Position (Optional)</label>
+                            <input type="text" class="recipient-position" placeholder="e.g. Software Engineer">
+                        </div>
+                        <div>
+                            <label>Resume Link (Optional)</label>
+                            <input type="url" class="recipient-resume" placeholder="Leave blank to use default">
+                        </div>
+                        <button class="btn btn-remove" onclick="removeRecipient(this)">🗑️</button>
+                    </div>
+                </div>
+                <button class="btn btn-add" onclick="addRecipient()">➕ Add Recipient</button>
+            </div>
+            
+            <!-- Google Sheets Tab -->
+            <div id="sheets-tab" class="tab-content">
+                <div class="form-group">
+                    <label>Google Sheet URL</label>
+                    <input type="url" id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/...">
+                </div>
+                <button class="btn" onclick="loadFromSheet()">📊 Load Recipients from Sheet</button>
+                <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                    ℹ️ Sheet must be public. Columns: name, email, company (flexible naming)
+                </p>
+                <div id="sheetStatus"></div>
+                <div id="sheetPreview" style="margin-top: 20px;"></div>
+            </div>
+        </div>
+        
+        <!-- Preview Card -->
+        <div class="card">
+            <h2>👁️ Preview Email</h2>
+            <div class="form-group">
+                <label>Test with:</label>
+                <input type="text" id="previewName" placeholder="Name" style="width: 32%; display: inline-block; margin-right: 1%;">
+                <input type="text" id="previewCompany" placeholder="Company" style="width: 32%; display: inline-block; margin-right: 1%;">
+                <button class="btn" onclick="previewEmail()" style="width: 33%; display: inline-block;">🔍 Generate Preview</button>
+            </div>
+            <div id="previewContent" class="preview-box" style="display: none;"></div>
+            <div id="previewStatus"></div>
+        </div>
+        
+        <!-- Send Card -->
+        <div class="card">
+            <h2>🚀 Send Emails</h2>
+            <p style="color: #666; margin-bottom: 20px;">
+                Review your configuration and recipients before sending.
+            </p>
+            <button class="btn" onclick="sendEmails()" id="sendBtn">📤 Send All Emails</button>
+            <div id="sendStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentTab = 'manual';
+        
+        // Load configuration on page load
+        window.onload = async () => {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                
+                document.getElementById('yourName').value = config.your_name || '';
+                document.getElementById('yourEmail').value = config.your_email || '';
+                document.getElementById('resumeLink').value = config.resume_link || '';
+                document.getElementById('emailDelay').value = config.email_delay || '5';
+            } catch (error) {
+                console.error('Error loading config:', error);
+            }
+        };
+        
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(`${tab}-tab`).classList.add('active');
+        }
+        
+        function addRecipient() {
+            const list = document.getElementById('recipientsList');
+            const row = document.createElement('div');
+            row.className = 'recipient-row';
+            row.style.gridTemplateColumns = '1fr 1fr 1fr 1fr 1fr auto';
+            row.innerHTML = `
+                <div>
+                    <label>Name</label>
+                    <input type="text" class="recipient-name" placeholder="Name">
+                </div>
+                <div>
+                    <label>Email</label>
+                    <input type="email" class="recipient-email" placeholder="email@example.com">
+                </div>
+                <div>
+                    <label>Company</label>
+                    <input type="text" class="recipient-company" placeholder="Company Name">
+                </div>
+                <div>
+                    <label>Job Position (Optional)</label>
+                    <input type="text" class="recipient-position" placeholder="e.g. Software Engineer">
+                </div>
+                <div>
+                    <label>Resume Link (Optional)</label>
+                    <input type="url" class="recipient-resume" placeholder="Leave blank to use default">
+                </div>
+                <button class="btn btn-remove" onclick="removeRecipient(this)">🗑️</button>
+            `;
+            list.appendChild(row);
+        }
+        
+        function removeRecipient(btn) {
+            btn.parentElement.remove();
+        }
+        
+        async function saveConfig() {
+            const config = {
+                your_name: document.getElementById('yourName').value,
+                your_email: document.getElementById('yourEmail').value,
+                resume_link: document.getElementById('resumeLink').value,
+                email_delay: document.getElementById('emailDelay').value,
+                gemini_api_key: document.getElementById('geminiKey').value
+            };
+            
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('configStatus', '✅ Configuration saved successfully!', 'success');
+                } else {
+                    showStatus('configStatus', '❌ Error: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('configStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+        
+        async function previewEmail() {
+            const name = document.getElementById('previewName').value;
+            const company = document.getElementById('previewCompany').value;
+            
+            if (!name || !company) {
+                showStatus('previewStatus', '⚠️ Please enter name and company', 'error');
+                return;
+            }
+            
+            showStatus('previewStatus', '⏳ Generating preview...', 'info');
+            
+            try {
+                const response = await fetch('/api/preview', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name, company})
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('previewContent').style.display = 'block';
+                    document.getElementById('previewContent').textContent = 
+                        `Subject: ${result.subject}\n\n${result.content}`;
+                    showStatus('previewStatus', '✅ Preview generated!', 'success');
+                } else {
+                    showStatus('previewStatus', '❌ Error: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('previewStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+        
+        async function testEmail() {
+            showStatus('configStatus', '⏳ Sending test email...', 'info');
+            
+            try {
+                const response = await fetch('/api/test', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('configStatus', '✅ ' + result.message, 'success');
+                } else {
+                    showStatus('configStatus', '❌ Error: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('configStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+        
+        function getRecipients() {
+            const recipients = [];
+            const rows = document.querySelectorAll('.recipient-row');
+            
+            rows.forEach(row => {
+                const name = row.querySelector('.recipient-name').value;
+                const email = row.querySelector('.recipient-email').value;
+                const company = row.querySelector('.recipient-company').value;
+                const position = row.querySelector('.recipient-position')?.value || null;
+                const resume = row.querySelector('.recipient-resume')?.value || null;
+                
+                if (name && email && company) {
+                    recipients.push({
+                        name, 
+                        email, 
+                        company,
+                        job_position: position,
+                        resume_link: resume
+                    });
+                }
+            });
+            
+            return recipients;
+        }
+        
+        async function loadFromSheet() {
+            const sheetUrl = document.getElementById('sheetUrlInput').value;
+            
+            if (!sheetUrl) {
+                showStatus('sheetStatus', '⚠️ Please enter a sheet URL', 'error');
+                return;
+            }
+            
+            showStatus('sheetStatus', '⏳ Loading data from sheet...', 'info');
+            
+            try {
+                const response = await fetch('/api/sheet/preview', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({sheet_url: sheetUrl})
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Clear existing recipients
+                    document.getElementById('recipientsList').innerHTML = '';
+                    
+                    // Add recipients from sheet
+                    result.recipients.forEach(r => {
+                        addRecipientWithData(r);
+                    });
+                    
+                    showStatus('sheetStatus', 
+                        `✅ Loaded ${result.count} recipients from sheet!`, 
+                        'success'
+                    );
+                    
+                    // Switch to manual tab to show loaded data
+                    currentTab = 'manual';
+                    document.querySelectorAll('.tab')[0].classList.add('active');
+                    document.querySelectorAll('.tab')[1].classList.remove('active');
+                    document.getElementById('manual-tab').classList.add('active');
+                    document.getElementById('sheets-tab').classList.remove('active');
+                } else {
+                    showStatus('sheetStatus', '❌ Error: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('sheetStatus', '❌ Error: ' + error.message, 'error');
+            }
+        }
+        
+        function addRecipientWithData(data) {
+            const list = document.getElementById('recipientsList');
+            const row = document.createElement('div');
+            row.className = 'recipient-row';
+            row.style.gridTemplateColumns = '1fr 1fr 1fr 1fr 1fr auto';
+            row.innerHTML = `
+                <div>
+                    <label>Name</label>
+                    <input type="text" class="recipient-name" placeholder="Name" value="${data.name || ''}">
+                </div>
+                <div>
+                    <label>Email</label>
+                    <input type="email" class="recipient-email" placeholder="email@example.com" value="${data.email || ''}">
+                </div>
+                <div>
+                    <label>Company</label>
+                    <input type="text" class="recipient-company" placeholder="Company Name" value="${data.company || ''}">
+                </div>
+                <div>
+                    <label>Job Position (Optional)</label>
+                    <input type="text" class="recipient-position" placeholder="e.g. Software Engineer" value="${data.job_position || ''}">
+                </div>
+                <div>
+                    <label>Resume Link (Optional)</label>
+                    <input type="url" class="recipient-resume" placeholder="Leave blank to use default" value="${data.resume_link || ''}">
+                </div>
+                <button class="btn btn-remove" onclick="removeRecipient(this)">🗑️</button>
+            `;
+            list.appendChild(row);
+        }
+        
+        async function sendEmails() {
+            const recipients = getRecipients();
+            
+            if (recipients.length === 0) {
+                showStatus('sendStatus', '⚠️ Please add at least one recipient', 'error');
+                return;
+            }
+            
+            if (!confirm(`Send emails to ${recipients.length} recipients?`)) {
+                return;
+            }
+            
+            const btn = document.getElementById('sendBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Sending...';
+            
+            showStatus('sendStatus', `⏳ Sending emails to ${recipients.length} recipients...`, 'info');
+            
+            try {
+                const response = await fetch('/api/send', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({recipients})
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('sendStatus', 
+                        `✅ Campaign complete!\n` +
+                        `Total: ${result.total} | Success: ${result.successful} | Failed: ${result.failed}`,
+                        'success'
+                    );
+                } else {
+                    showStatus('sendStatus', '❌ Error: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('sendStatus', '❌ Error: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '📤 Send All Emails';
+            }
+        }
+        
+        function showStatus(elementId, message, type) {
+            const statusDiv = document.getElementById(elementId);
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

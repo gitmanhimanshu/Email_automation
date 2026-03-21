@@ -1,0 +1,37 @@
+# Credentials & Tokens
+cred.json
+credentials.json
+sheets_creds.json
+token.pickle
+token.json
+venv
+# Environment Variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Logs & Output
+*.log
+sent_emails.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
