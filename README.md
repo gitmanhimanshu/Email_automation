@@ -2,10 +2,49 @@
 
 **Automated Job Application Email Sender with AI-Generated Content**
 
-Google Sheets/Manual Input → Gemini AI → Gmail API → Personalized Emails
-
 ✨ **Ye project tumhari personal Gmail se HR ko automatic emails bhejta hai**  
 📊 **HR ki sheet ya manual entry ke madhyam se**
+
+---
+
+## 🔀 Teen Tarike — apna chuno
+
+| | **Standalone** | **Local MCP** | **Hosted MCP** |
+|---|---|---|---|
+| Email kaun likhta hai | Gemini | Claude | Claude |
+| Kaun use kar sakta hai | Sirf tum | Sirf tum | **Koi bhi user** |
+| User ko install karna padta hai | Haan | Haan | **Kuch nahi** |
+| Chalane ka tarika | `python app.py` | Claude Desktop | claude.ai / ChatGPT |
+| Google setup | User khud karta hai | User khud karta hai | **Tum ek baar** |
+| Guide | Neeche ⬇️ | [MCP_SETUP.md](MCP_SETUP.md) | [remote/README.md](remote/README.md) |
+
+**Setup docs:**
+[GOOGLE_SETUP.md](GOOGLE_SETUP.md) — Google Cloud ka pura walkthrough (scopes, audience, client) ·
+[NGROK_CHATGPT.md](NGROK_CHATGPT.md) — ngrok se ChatGPT/claude.ai mein test karo
+
+**Standalone** mein koi model loop mein nahi hota, isliye Gemini content likhta hai.
+
+**MCP** modes mein Claude khud likhta hai — usse tumhari actual skills aur conversation
+ka context pata hota hai, jo ek fixed prompt ke paas kabhi nahi hoga. Isliye MCP mein
+Gemini use hi nahi hota.
+
+**Hosted** wala asli product hai: user claude.ai pe connector add karta hai,
+"Sign in with Google" karta hai, aur bolta hai *"hiring companies dhundo aur apply karo"* —
+Claude research karta hai, likhta hai, server bhejta hai.
+
+---
+
+## 🔒 Ek rule jo kabhi mat todna
+
+Ye app sirf **`gmail.send`** scope maangta hai. `gmail.readonly` add karne ka man kare
+to yaad rakhna:
+
+| Scope | Tier | Cost |
+|---|---|---|
+| `gmail.send` | Sensitive | Free verification |
+| `gmail.readonly` / `compose` / `modify` | **Restricted** | **$15k-75k CASA audit, har saal** |
+
+Ek line ka farak, lakhon rupaye ka. ([Google docs](https://developers.google.com/workspace/gmail/api/auth/scopes))
 
 ---
 
@@ -226,7 +265,7 @@ Each recipient gets relevant resume link!
 - ✅ **Web Interface** - No terminal commands needed
 - ✅ **Google Sheets Support** - Public sheet se automatic data load
 - ✅ **Manual Entry** - Browser mein directly recipients add karo
-- ✅ **AI-Generated Content** - Gemini Flash 2.5 se personalized emails
+- ✅ **AI-Generated Content** - Gemini se personalized emails (model `.env` mein badal sakte ho)
 - ✅ **Job Position Based** - Har position ke liye customized email
 - ✅ **Custom Resume Links** - Har recipient ka alag resume link
 - ✅ **Automatic Fallback** - Gemini fail hone par template use hoga
@@ -246,18 +285,35 @@ pip install -r requirements.txt
 
 ### Step 2: Configure .env File
 
-`.env` file edit karke ye 4 values bharo:
+`.env.example` ko `.env` naam se copy karke bharo:
 
 ```env
-GEMINI_API_KEY=your_api_key_here
-RESUME_LINK=https://your-resume-link.com
 YOUR_NAME=Your Full Name
 YOUR_EMAIL=your.email@gmail.com
+RESUME_LINK=https://your-resume-link.com
+EMAIL_DELAY=5
+
+GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=xxxx
+
+GEMINI_API_KEY=your_api_key_here
 ```
+
+**Google client ID/secret:** [Cloud Console](https://console.cloud.google.com/apis/credentials)
+→ Gmail API enable karo → Create OAuth client ID → type **Desktop app**.
+(Ya JSON download karke `cred.json` naam se project folder mein rakh do.)
 
 **Gemini API Key:** https://aistudio.google.com/app/apikey
 
-### Step 3: Start Web Interface
+### Step 3: Gmail Login (ek baar)
+
+```bash
+python authorize.py
+```
+
+Browser khulega. Jis Gmail se bhejna hai usse login karo → Allow.
+
+### Step 4: Start Web Interface
 
 ```bash
 python app.py
@@ -389,9 +445,9 @@ Resume: https://your-resume.com
 - Daily limit: ~100-300 emails (personal Gmail)
 
 ### Security:
-- `cred.json` already in `.gitignore`
-- Never commit credentials
-- `token.pickle` auto-generated (also ignored)
+- Scope sirf `gmail.send` hai — ye app tumhara **inbox padh hi nahi sakta**
+- `.env` aur `cred.json` `.gitignore` mein hain
+- Token `~/.email_automation/token.json` mein, project folder se bahar
 
 ### Gemini Fallback:
 - If API fails, uses professional template
@@ -400,11 +456,10 @@ Resume: https://your-resume.com
 - No manual intervention needed
 
 ### First Time Gmail Authentication:
-- Browser automatically khulega
-- Login karo (same email as cred.json)
-- "Allow" click karo
-- `token.pickle` file ban jayegi
-- Next time automatic hoga
+- `python authorize.py` chalao
+- Browser khulega, login karo, "Allow" click karo
+- Token save ho jaayega — next time automatic
+- Teeno modes (CLI, web, MCP) yahi ek login share karte hain
 
 ---
 
@@ -423,36 +478,54 @@ Ya web interface mein **"Send Test Email"** button use karo.
 
 ```
 .
-├── cred.json              # Gmail credentials (from Google Cloud)
-├── .env                   # Your configuration
-├── app.py                 # Flask web server
-├── gmail_auth.py          # Gmail authentication
-├── gemini_content.py      # AI content generation
-├── email_sender.py        # Email sending logic
-├── sheets_reader.py       # Public sheet reader
-├── main.py                # CLI interface (optional)
-├── test_email.py          # Test script
-├── requirements.txt       # Dependencies
+├── .env                    # Your configuration (never commit)
+├── core/                   # Shared by all three entry points
+│   ├── config.py           #   Settings + file locations
+│   ├── gmail_auth.py       #   OAuth (send-only scope)
+│   ├── email_sender.py     #   Gmail send
+│   ├── sheets_reader.py    #   Public sheet reader
+│   ├── gemini_content.py   #   AI content (standalone mode only)
+│   └── sent_log.py         #   Send history + dedupe
+├── app.py                  # Standalone: Flask web server
+├── main.py                 # Standalone: CLI
+├── test_email.py           # Send yourself one test email
+├── authorize.py            # One-time Gmail login
+├── mcp_server/
+│   └── server.py           # MCP server for Claude
+├── requirements.txt
 └── templates/
-    └── index.html         # Web interface
+    └── index.html          # Web interface
+```
+
+Ye files project folder mein **nahi** banti — `~/.email_automation/` mein banti hain,
+taaki teeno modes ek hi login share karein aur kuch secret galti se commit na ho:
+
+```
+~/.email_automation/
+├── token.json          # Gmail login
+└── sent_emails.json    # Har bheji hui email ka record
 ```
 
 ---
 
 ## 🆘 Troubleshooting
 
-**"cred.json not found"**
-→ Download from Google Cloud Console (OAuth Client ID)
+**"No Google OAuth credentials found"**
+→ `.env` mein `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` bharo, ya `cred.json` rakho
+
+**"Gmail is not authorized"**
+→ `python authorize.py` chalao
+
+**"Google did not recognize the OAuth client"**
+→ Client ID/secret galat hai ya Cloud Console se delete ho gaya
+→ Theek karke `python authorize.py` dobara chalao
 
 **"GEMINI_API_KEY not found"**
 → Add to `.env` file from https://aistudio.google.com/app/apikey
+→ (MCP mode mein iski zaroorat nahi — Claude khud likhta hai)
 
-**"Sheet not accessible"**
-→ Make sheet public: File → Share → Anyone with link can view
-
-**"Gmail authentication failed"**
-→ Use same email as in cred.json
-→ Allow access in browser popup
+**"The sheet is not public"**
+→ Sheet → Share → "Anyone with the link" → Viewer
 
 **"Gemini API fails"**
 → System automatically uses fallback template
@@ -487,11 +560,13 @@ Ya web interface mein **"Send Test Email"** button use karo.
 
 ## 🔐 Security
 
-- All credentials in `.gitignore`
-- Never commit `cred.json` or `.env`
-- `token.pickle` auto-generated and ignored
-- API keys stored in environment variables
-- No credentials in code
+- **Send-only scope.** Ye app `gmail.send` maangta hai aur bas. Inbox padhna
+  technically possible hi nahi hai — token leak bhi ho jaye to koi tumhari
+  mails nahi dekh sakta.
+- Har user apni khud ki Google client ID/secret use karta hai — koi shared credential nahi
+- `.env` aur `cred.json` `.gitignore` mein hain
+- Token project folder se bahar (`~/.email_automation/token.json`), file permissions `600`
+- Code mein koi credential hardcoded nahi
 
 ---
 

@@ -1,14 +1,14 @@
-# Credentials & Tokens
+# Credentials & Tokens — never commit these
+.env
 cred.json
 credentials.json
 sheets_creds.json
-token.pickle
 token.json
-venv
-# Environment Variables
-.env
+token.pickle
 
 # Python
+venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -23,6 +23,11 @@ build/
 # Logs & Output
 *.log
 sent_emails.json
+
+# Hosted server database (user data — never commit)
+data/
+*.db
+*.sqlite3
 
 # IDE
 .vscode/

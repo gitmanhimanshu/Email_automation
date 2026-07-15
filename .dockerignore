@@ -1,0 +1,39 @@
+# Secrets — must never reach the image. The Dockerfile only copies remote/, so
+# these are already out, but a later COPY . . shouldn't quietly ship them.
+.env
+.env.*
+!.env.example
+cred.json
+credentials.json
+token.json
+token.pickle
+
+# User data
+data/
+*.db
+*.sqlite3
+sent_emails.json
+
+# Desktop-only modes — the hosted server never imports these
+core/
+mcp_server/
+templates/
+app.py
+main.py
+test_email.py
+authorize.py
+*.bat
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Repo noise
+.git/
+.gitignore
+*.md
+!remote/README.md
+.vscode/
+.idea/
