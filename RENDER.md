@@ -63,12 +63,10 @@ Repo mein [render.yaml](render.yaml) already hai.
    DATABASE_URL=postgresql://...neon.tech/setu?sslmode=require
    ADMIN_EMAIL=you@gmail.com
    ADMIN_PASSWORD=strong-password-here
-   FRONTEND_ORIGIN=https://your-frontend.vercel.app
    ENV=production
    ```
    > `ADMIN_EMAIL`/`ADMIN_PASSWORD` frontend ke `/admin` panel ka login hai —
-   > set nahi karoge to admin routes 503 dete hain (panel band). `FRONTEND_ORIGIN`
-   > ke bina dashboard/admin ki API calls browser mein CORS pe block hongi.
+   > set nahi karoge to admin routes 503 dete hain (panel band).
    > `PUBLIC_BASE_URL` aur `PORT` **mat daalo** — Render khud
    > `RENDER_EXTERNAL_HOSTNAME` aur `PORT` inject karta hai, aur
    > `remote/config.py` dono utha leta hai.

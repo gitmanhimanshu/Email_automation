@@ -130,7 +130,6 @@ ENV=production
 # isse har user ka data dikhta hai aur plans badalte hain.
 ADMIN_EMAIL=you@gmail.com
 ADMIN_PASSWORD=change-me
-FRONTEND_ORIGIN=https://your-frontend.vercel.app
 ```
 
 `PUBLIC_BASE_URL` **HTTPS hona chahiye**. HTTP pe FastMCP non-secure cookies ka

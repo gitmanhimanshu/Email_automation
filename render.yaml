@@ -17,8 +17,6 @@ services:
         sync: false            # admin panel login (optional — unset = no admin)
       - key: ADMIN_PASSWORD
         sync: false
-      - key: FRONTEND_ORIGIN
-        sync: false            # Vercel frontend ka origin, /admin aur /api/stats ke CORS ke liye
       - key: ENV
         value: production
       # PUBLIC_BASE_URL mat daalo — Render RENDER_EXTERNAL_HOSTNAME inject

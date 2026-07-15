@@ -35,9 +35,9 @@ HOST = os.getenv("HOST", "0.0.0.0")
 # Hosts assign the port at runtime; never hardcode it in the Dockerfile CMD.
 PORT = int(os.getenv("PORT", "8000"))
 
-# Origin allowed to call /api/stats from a browser. Set this to the deployed
-# frontend; the default only covers `next dev`.
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000").rstrip("/")
+# /api/stats and /admin/api serve CORS `*`: they authenticate via an explicit
+# Authorization header (no cookies), so origin allowlisting adds no security
+# and was one more env var to get wrong. No FRONTEND_ORIGIN needed.
 
 # Set DATABASE_URL (Neon, Supabase, Railway PG) and Postgres is used. Leave it
 # unset and it falls back to SQLite, so local dev needs no database running.

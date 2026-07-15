@@ -537,11 +537,9 @@ async def api_stats(request):
     """
     from starlette.responses import JSONResponse
 
-    origin = config.FRONTEND_ORIGIN
     cors = {
-        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Authorization",
-        "Vary": "Origin",
     }
 
     if request.method == "OPTIONS":
@@ -607,12 +605,14 @@ async def api_stats(request):
 # come from ADMIN_EMAIL / ADMIN_PASSWORD env vars; if either is unset, every
 # route here answers 503 and the panel simply does not exist.
 
+# CORS is open on purpose: every route behind it requires credentials in an
+# explicit Authorization header (never cookies), so the origin adds nothing —
+# and an open policy means no FRONTEND_ORIGIN to misconfigure per deploy.
 def _admin_cors():
     return {
-        "Access-Control-Allow-Origin": config.FRONTEND_ORIGIN,
+        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Authorization, Content-Type",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Vary": "Origin",
     }
 
 
