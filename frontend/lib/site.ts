@@ -35,7 +35,33 @@ export const LIMITS = {
   perDay: 80,
   perBatch: 25,
   defaultDelaySeconds: 5,
+  freeEmails: 5, // must match FREE_EMAIL_LIMIT on the server
 };
+
+/** Mirrors ROLES in remote/config.py — keep the two in step. */
+export const ROLES = [
+  {
+    id: "job_seeker",
+    label: "Job seeker",
+    body: "Applying for roles. Your resume link rides along with every application — Setu checks HR can actually open it before you send.",
+    link: "Resume",
+    required: true,
+  },
+  {
+    id: "recruiter",
+    label: "Recruiter",
+    body: "Reaching out to candidates. Attach the job description, or nothing at all — Setu doesn't force a link on you.",
+    link: "Job description",
+    required: false,
+  },
+  {
+    id: "professional",
+    label: "Professional",
+    body: "Clients, partners, cold outreach. Add a portfolio link if it helps; skip it if it doesn't.",
+    link: "Portfolio",
+    required: false,
+  },
+];
 
 /**
  * MCP clients.
@@ -69,42 +95,72 @@ export const TOOLS: Tool[] = [
   {
     name: "get_my_profile",
     purpose:
-      "Who you are, whether a resume link is saved, and how much of today's quota is left. The assistant should call this first — everything else depends on it.",
+      "Who you are, your role, saved link, plan, and remaining quota. The assistant should call this first — everything else depends on it.",
     input: [],
     output:
-      "email, name, resume_link, resume_link_saved, sent_last_24h, daily_limit, remaining_today, max_per_batch, setup_needed",
+      "email, name, role, link, link_saved, link_required, plan, subscribed_at, subscription_ends_at, total_sent, free_remaining, sent_last_24h, daily_limit, remaining_today, setup_needed",
     example: `{
   "email": "you@gmail.com",
   "name": "Himanshu Yadav",
-  "resume_link": "https://drive.google.com/file/d/…",
-  "resume_link_saved": true,
-  "sent_last_24h": 12,
+  "role": "job_seeker",
+  "role_label": "Job seeker",
+  "link": "https://drive.google.com/file/d/…",
+  "link_label": "Resume",
+  "link_saved": true,
+  "link_required": true,
+  "plan": "free",
+  "total_sent": 3,
+  "free_email_limit": 5,
+  "free_remaining": 2,
+  "sent_last_24h": 3,
   "daily_limit": 80,
-  "remaining_today": 68,
-  "max_per_batch": 25,
+  "remaining_today": 77,
   "setup_needed": null
 }`,
   },
   {
-    name: "save_resume_link",
+    name: "set_role",
     purpose:
-      "Saves your resume URL. Setu fetches the link to check an HR reader could actually open it — a Drive file you forgot to share is rejected here rather than silently failing in someone's inbox.",
+      "Sets what the user does — job_seeker, recruiter, or professional. The role decides what link rides along with their emails and whether one is required at all. Ask the user; never infer it. Changeable any time.",
     input: [
       {
-        name: "resume_link",
+        name: "role",
+        type: "string",
+        required: true,
+        desc: "job_seeker | recruiter | professional",
+      },
+    ],
+    output: "success, role, role_label, link_label, link_required, next_step",
+    example: `{
+  "success": true,
+  "role": "recruiter",
+  "role_label": "Recruiter",
+  "link_label": "Job description",
+  "link_required": false,
+  "next_step": "Optional: ask if they want a job description
+   link on their emails."
+}`,
+  },
+  {
+    name: "save_link",
+    purpose:
+      "Saves the URL appended to every email. What it is depends on the role — a resume for a job seeker, a job description for a recruiter, a portfolio for a professional. Setu fetches it to check the recipient could actually open it, so a private Drive file is rejected here rather than silently failing in someone's inbox.",
+    input: [
+      {
+        name: "link",
         type: "string",
         required: true,
         desc: "Public http(s) URL — Drive, Dropbox, personal site",
       },
     ],
-    output: "success, resume_link, detail — or an error explaining why it was rejected",
+    output: "success, link, link_label, detail — or an error explaining the rejection",
     example: `{
   "success": false,
   "error": "This link is not shared publicly — it redirects to a
-   sign-in page, so HR would see 'Request access' instead of the
-   resume. Open it in Drive, click Share, and set 'Anyone with
-   the link' to Viewer.",
-  "resume_link": "https://drive.google.com/file/d/…"
+   sign-in page, so the recipient would see 'Request access'
+   instead of the file. Open it in Drive, click Share, and set
+   'Anyone with the link' to Viewer.",
+  "link": "https://drive.google.com/file/d/…"
 }`,
   },
   {
@@ -135,7 +191,7 @@ export const TOOLS: Tool[] = [
   {
     name: "send_application",
     purpose:
-      "Sends one application from your Gmail. Irreversible. Refuses if no resume link is saved or the daily limit is spent. Your resume link is appended automatically.",
+      "Sends one email from your Gmail. Irreversible. Refuses if no role is set, if the role needs a link and none is saved, if the free allowance is spent, or if the daily limit is reached. Your link is appended automatically.",
     input: [
       { name: "to", type: "string", required: true, desc: "Recipient address" },
       { name: "subject", type: "string", required: true, desc: "Subject line" },

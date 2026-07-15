@@ -16,6 +16,7 @@ import {
 import Architecture from "@/components/Architecture";
 import Aurora from "@/components/Aurora";
 import ChatDemo from "@/components/ChatDemo";
+import Logo from "@/components/Logo";
 import { AnimatedTerminal } from "@/components/CodeWindow";
 import Faq from "@/components/Faq";
 import Reveal from "@/components/Reveal";
@@ -102,7 +103,25 @@ export default function Home() {
               Model Context Protocol server
             </span>
 
-            <h1 className="mt-6 text-4xl sm:text-6xl font-semibold tracking-tight leading-[1.03]">
+            <div className="mt-7 flex items-center gap-3">
+              <Logo size={44} />
+              <div>
+                <p
+                  lang="hi"
+                  className="text-3xl font-semibold tracking-tight leading-none"
+                >
+                  सेतु
+                </p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.35em] text-[var(--text-muted)]">
+                  Setu
+                </p>
+              </div>
+            </div>
+
+            {/* The <h1> carries the name for search and screen readers; the
+                background wordmark is decoration and is aria-hidden. */}
+            <h1 className="mt-5 text-4xl sm:text-6xl font-semibold tracking-tight leading-[1.03]">
+              <span className="sr-only">Setu — </span>
               Connect AI to Gmail
               <br />
               in minutes.

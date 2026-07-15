@@ -277,6 +277,61 @@ body {
   animation: drift-3 30s ease-in-out infinite alternate;
 }
 
+/* The oversized wordmark drifting behind the hero. Outlined rather than filled
+   so it reads as a watermark and never competes with the headline in front of
+   it. Sits under the veil, which keeps body-text contrast intact. */
+.aurora-word {
+  position: absolute;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--accent);
+  opacity: 0.09;
+  will-change: transform;
+}
+
+.aurora-word-hi {
+  top: 4%;
+  left: -4%;
+  font-size: clamp(9rem, 26vw, 24rem);
+  animation: word-drift-a 34s ease-in-out infinite alternate;
+}
+
+.aurora-word-en {
+  bottom: -6%;
+  right: -6%;
+  font-size: clamp(7rem, 20vw, 18rem);
+  -webkit-text-stroke-width: 1.2px;
+  opacity: 0.07;
+  animation: word-drift-b 40s ease-in-out infinite alternate;
+}
+
+:root[data-theme="dark"] .aurora-word,
+:root:not([data-theme="light"]) .aurora-word {
+  opacity: 0.13;
+}
+
+@keyframes word-drift-a {
+  from {
+    transform: translate3d(0, 0, 0) rotate(-1.5deg);
+  }
+  to {
+    transform: translate3d(5vw, 3vh, 0) rotate(1.5deg);
+  }
+}
+
+@keyframes word-drift-b {
+  from {
+    transform: translate3d(0, 0, 0) rotate(2deg);
+  }
+  to {
+    transform: translate3d(-6vw, -4vh, 0) rotate(-1deg);
+  }
+}
+
 /* Keeps text contrast intact no matter where the blobs drift. */
 .aurora-veil {
   position: absolute;

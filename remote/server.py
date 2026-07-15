@@ -30,24 +30,32 @@ mcp = FastMCP(
     "Setu",
     auth=auth,
     instructions=(
-        "Setu sends job application emails from the signed-in user's own Gmail.\n\n"
+        "Setu sends email from the signed-in user's own Gmail. It serves three "
+        "kinds of people, and the role changes what a good email looks like:\n"
+        "  - job_seeker: applying for jobs. Resume link required.\n"
+        "  - recruiter: reaching out to candidates about a role they're hiring for.\n"
+        "  - professional: general outreach — clients, partners, cold contacts.\n\n"
         "Always work in this order:\n"
-        "1. get_my_profile — learn who the user is and whether a resume link is saved.\n"
-        "1b. If no resume link is saved, ask the user for it now and call "
-        "save_resume_link. Sending is blocked until one exists, so ask early rather "
-        "than after you have written everything. Ask the user; never invent a URL.\n"
-        "2. Research the companies and find real HR/careers addresses on real pages. "
-        "Never construct an address from a naming pattern; a wrong address bounces "
-        "and damages the user's Gmail reputation. Prefer published careers@ / jobs@ "
-        "addresses over personal ones.\n"
-        "3. verify_hr_emails — optional, but call it when you are unsure about an "
-        "address. It checks whether the domain can actually receive mail.\n"
-        "4. Write one genuinely different email per company, grounded in that "
-        "company's actual job posting.\n"
-        "5. Show the user the recipient list and at least one full email body, and "
-        "get their explicit approval.\n"
-        "6. send_applications.\n\n"
-        "Sending is irreversible. Never send without showing the user first."
+        "1. get_my_profile — who they are, their role, plan, and quota.\n"
+        "2. If no role is set, ask which one fits and call set_role. Ask; do not "
+        "infer it. If their role needs a link and none is saved, ask for it and "
+        "call save_link. Do this before writing anything — being told 'no resume "
+        "saved' after you've drafted ten emails wastes everyone's time. Never "
+        "invent a URL.\n"
+        "3. Research the recipients and find real addresses on real pages. Never "
+        "construct an address from a naming pattern — a wrong address bounces, and "
+        "bounces damage the user's Gmail reputation. Prefer published addresses "
+        "over guessed personal ones.\n"
+        "4. verify_hr_emails — optional, but call it when unsure about an address.\n"
+        "5. Write one genuinely different email per recipient, grounded in "
+        "something real about them: the actual job posting, the candidate's actual "
+        "work, the company's actual situation.\n"
+        "6. Show the user the recipient list and at least one full body, and get "
+        "explicit approval.\n"
+        "7. send_application or send_applications.\n\n"
+        "Sending is irreversible. Never send without showing the user first. If a "
+        "tool reports the free allowance is spent, tell the user to subscribe — "
+        "do not try to work around it."
     ),
 )
 
@@ -109,68 +117,166 @@ async def _identity():
     return access_token, identity
 
 
-def _append_resume(body, resume_link):
-    """Guarantee the resume link is present without letting the model forget it."""
-    if not resume_link or resume_link in body:
+def _role_of(user):
+    role = (user or {}).get("role")
+    return role if role in config.ROLES else None
+
+
+def _append_link(body, link, role):
+    """Append the user's link, labelled for who they are — a resume for a job
+    seeker, a job description for a recruiter. Same mechanism, different word."""
+    if not link or link in body:
         return body
-    return f"{body.rstrip()}\n\nResume: {resume_link}"
+    label = config.ROLES.get(role, {}).get("link_label", "Link")
+    return f"{body.rstrip()}\n\n{label}: {link}"
 
 
-# A job application with no resume wastes the send and burns the contact, so the
-# send tools refuse rather than trusting the model to have read get_my_profile.
-NO_RESUME_ERROR = (
-    "No resume link is saved for this user, and a job application without a resume "
-    "is pointless. Ask the user for their resume link — a Google Drive share URL, "
-    "Dropbox, personal site, whatever they use — then call save_resume_link with "
-    "exactly what they give you and retry. Never invent or guess the URL."
-)
+def _link_problem(user):
+    """Why this user can't send yet, or None.
+
+    Only job seekers are hard-gated: an application with no resume wastes the
+    send and burns the contact. A recruiter emailing a candidate, or a
+    professional doing outreach, often has nothing to attach — blocking them
+    would be inventing a requirement that isn't real.
+    """
+    role = _role_of(user)
+    if not role:
+        return (
+            "This user hasn't set a role yet. Ask them which fits — job seeker, "
+            "recruiter, or professional — and call set_role. The role decides what "
+            "link goes out with their emails."
+        )
+
+    spec = config.ROLES[role]
+    if spec["link_required"] and not (user or {}).get("link"):
+        return (
+            f"No {spec['link_label'].lower()} link is saved, and this user is a "
+            f"{spec['label'].lower()} — sending without one wastes the contact. "
+            f"Ask them for {spec['link_hint']}, call save_link with exactly what "
+            "they give you, then retry. Never invent the URL."
+        )
+    return None
+
+
+def _plan_problem(user, sub):
+    """Free-plan allowance check. Lifetime, not daily."""
+    if (user or {}).get("plan", "free") != "free":
+        return None
+
+    used = storage.total_sent(sub)
+    if used < config.FREE_EMAIL_LIMIT:
+        return None
+
+    return (
+        f"The free plan covers {config.FREE_EMAIL_LIMIT} emails and this user has "
+        f"sent {used}. Tell them to subscribe to keep sending — do not attempt to "
+        "work around this."
+    )
 
 
 @mcp.tool
 async def get_my_profile() -> dict:
-    """Who the signed-in user is, their saved resume link, and remaining quota.
+    """Who the signed-in user is, their role, saved link, plan, and quota.
 
-    Call this first. The emails go out from this Gmail account, so the content
-    must match this person.
+    Call this first. Emails go out from this Gmail account, so the content must
+    match this person — and the role decides what kind of email makes sense.
     """
     _, identity = await _identity()
-    user = storage.get_user(identity["sub"]) or {}
-    used = storage.sent_today(identity["sub"])
+    sub = identity["sub"]
+    user = storage.get_user(sub) or {}
+    role = _role_of(user)
+    spec = config.ROLES.get(role, {})
+
+    used_today = storage.sent_today(sub)
+    lifetime = storage.total_sent(sub)
+    plan = user.get("plan", "free")
 
     return {
         "email": identity["email"],
         "name": identity.get("name"),
-        "resume_link": user.get("resume_link"),
-        "resume_link_saved": bool(user.get("resume_link")),
-        "sent_last_24h": used,
+        "role": role,
+        "role_label": spec.get("label"),
+        "available_roles": {k: v["label"] for k, v in config.ROLES.items()},
+        "link": user.get("link"),
+        "link_label": spec.get("link_label"),
+        "link_saved": bool(user.get("link")),
+        "link_required": spec.get("link_required", False),
+        "plan": plan,
+        "subscribed_at": user.get("subscribed_at"),
+        "subscription_ends_at": user.get("subscription_ends_at"),
+        "total_sent": lifetime,
+        "free_email_limit": config.FREE_EMAIL_LIMIT,
+        "free_remaining": max(0, config.FREE_EMAIL_LIMIT - lifetime) if plan == "free" else None,
+        "sent_last_24h": used_today,
         "daily_limit": config.DAILY_SEND_LIMIT,
-        "remaining_today": max(0, config.DAILY_SEND_LIMIT - used),
+        "remaining_today": max(0, config.DAILY_SEND_LIMIT - used_today),
         "max_per_batch": config.MAX_PER_BATCH,
+        "setup_needed": _link_problem(user) or _plan_problem(user, sub),
+    }
+
+
+@mcp.tool
+async def set_role(role: str) -> dict:
+    """Set what the user does. Ask them; don't infer it from context.
+
+    - job_seeker: applying for jobs. A resume link is required before sending.
+    - recruiter: reaching out to candidates. A job description link is optional.
+    - professional: general outreach. A portfolio link is optional.
+
+    Changeable any time — a job seeker who gets hired and starts recruiting just
+    calls this again.
+    """
+    role = role.strip().lower()
+    if role not in config.ROLES:
+        return {
+            "success": False,
+            "error": f"Unknown role {role!r}. Pick one of: {', '.join(config.ROLES)}",
+        }
+
+    _, identity = await _identity()
+    storage.set_role(identity["sub"], role)
+    spec = config.ROLES[role]
+
+    return {
+        "success": True,
+        "role": role,
+        "role_label": spec["label"],
+        "link_label": spec["link_label"],
+        "link_required": spec["link_required"],
         "next_step": (
-            "Ask the user for their resume link (Google Drive, etc.) and call "
-            "save_resume_link before sending."
-            if not user.get("resume_link")
-            else "Ready to send."
+            f"Ask the user for {spec['link_hint']} and call save_link."
+            if spec["link_required"]
+            else f"Optional: ask if they want a {spec['link_label'].lower()} link on their emails."
         ),
     }
 
 
 @mcp.tool
-async def save_resume_link(resume_link: str) -> dict:
-    """Save the user's resume link. It is appended to every application sent.
+async def save_link(link: str) -> dict:
+    """Save the URL that rides along with every email this user sends.
 
-    Ask the user for this directly and paste exactly what they give you — never
-    invent, guess, or complete a URL. The link is checked here to make sure HR
-    could actually open it.
+    What it is depends on their role — a resume, a job description, a portfolio.
+    Ask them for it and paste exactly what they give you; never invent, guess, or
+    complete a URL. Setu fetches it to confirm the recipient could actually open
+    it, so a private Drive file is rejected here rather than silently failing in
+    someone's inbox.
     """
-    link = resume_link.strip()
-    ok, detail = await verify.check_resume_link(link)
+    url = link.strip()
+    ok, detail = await verify.check_resume_link(url)
     if not ok:
-        return {"success": False, "error": detail, "resume_link": link}
+        return {"success": False, "error": detail, "link": url}
 
     _, identity = await _identity()
-    storage.set_resume_link(identity["sub"], link)
-    return {"success": True, "resume_link": link, "detail": detail}
+    user = storage.get_user(identity["sub"]) or {}
+    storage.set_link(identity["sub"], url)
+
+    role = _role_of(user)
+    return {
+        "success": True,
+        "link": url,
+        "link_label": config.ROLES.get(role, {}).get("link_label", "Link"),
+        "detail": detail,
+    }
 
 
 @mcp.tool
@@ -220,17 +326,23 @@ async def send_application(
     Refuses until the user has a resume link saved.
     """
     access_token, identity = await _identity()
-    user = storage.get_user(identity["sub"]) or {}
+    sub = identity["sub"]
+    user = storage.get_user(sub) or {}
 
-    if not user.get("resume_link"):
-        return {"success": False, "to": to, "error": NO_RESUME_ERROR, "needs": "resume_link"}
+    problem = _link_problem(user)
+    if problem:
+        return {"success": False, "to": to, "error": problem, "needs": "role_or_link"}
+
+    problem = _plan_problem(user, sub)
+    if problem:
+        return {"success": False, "to": to, "error": problem, "needs": "subscription"}
 
     if config.VERIFY_HR_EMAILS:
         check = await asyncio.to_thread(verify.check, to, source_url, company)
         if not check["ok"]:
             return {"success": False, "to": to, "error": "; ".join(check["reasons"])}
 
-    used = storage.sent_today(identity["sub"])
+    used = storage.sent_today(sub)
     if used >= config.DAILY_SEND_LIMIT:
         return {
             "success": False,
@@ -241,7 +353,7 @@ async def send_application(
         access_token,
         to,
         subject,
-        _append_resume(body, user.get("resume_link")),
+        _append_link(body, user.get("link"), _role_of(user)),
         sender=identity["email"],
     )
     result.update(company=company, source_url=source_url)
@@ -273,18 +385,28 @@ async def send_applications(
         }
 
     access_token, identity = await _identity()
-    user = storage.get_user(identity["sub"]) or {}
+    sub = identity["sub"]
+    user = storage.get_user(sub) or {}
 
-    if not user.get("resume_link"):
-        return {"success": False, "error": NO_RESUME_ERROR, "needs": "resume_link"}
+    problem = _link_problem(user)
+    if problem:
+        return {"success": False, "error": problem, "needs": "role_or_link"}
 
-    used = storage.sent_today(identity["sub"])
+    problem = _plan_problem(user, sub)
+    if problem:
+        return {"success": False, "error": problem, "needs": "subscription"}
+
+    used = storage.sent_today(sub)
     remaining = config.DAILY_SEND_LIMIT - used
     if remaining <= 0:
         return {
             "success": False,
             "error": f"Daily limit reached ({used}/{config.DAILY_SEND_LIMIT}). Try tomorrow.",
         }
+
+    # The free allowance is lifetime, so a batch must not be able to overshoot it.
+    if user.get("plan", "free") == "free":
+        remaining = min(remaining, config.FREE_EMAIL_LIMIT - storage.total_sent(sub))
 
     verdict = {}
     if config.VERIFY_HR_EMAILS:
@@ -298,7 +420,7 @@ async def send_applications(
         verdict = {c["email"]: c for c in checks}
 
     pause = config.DEFAULT_DELAY_SECONDS if delay_seconds is None else max(0, delay_seconds)
-    resume_link = user.get("resume_link")
+    link, role = user.get("link"), _role_of(user)
 
     sent, skipped = [], []
     for application in applications:
@@ -314,14 +436,23 @@ async def send_applications(
                 continue
 
         if len(sent) >= remaining:
-            skipped.append({"to": application.to, "reason": "daily limit reached"})
+            skipped.append(
+                {
+                    "to": application.to,
+                    "reason": (
+                        "free plan allowance spent — subscribe to send the rest"
+                        if user.get("plan", "free") == "free"
+                        else "daily limit reached"
+                    ),
+                }
+            )
             continue
 
         result = gmail.send(
             access_token,
             application.to,
             application.subject,
-            _append_resume(application.body, resume_link),
+            _append_link(application.body, link, role),
             sender=identity["email"],
         )
         result.update(company=application.company, source_url=application.source_url)
@@ -393,13 +524,24 @@ async def api_stats(request):
     storage.upsert_user(sub, identity["email"], identity.get("name"))
     user = storage.get_user(sub) or {}
     history = storage.recent_sends(sub, limit=200)
+    role = user.get("role") if user.get("role") in config.ROLES else None
+    plan = user.get("plan", "free")
+    lifetime = storage.total_sent(sub)
 
     return JSONResponse(
         {
             "email": identity["email"],
             "name": identity.get("name"),
-            "resume_link": user.get("resume_link"),
-            "total_sent": sum(1 for r in history if r["success"]),
+            "role": role,
+            "role_label": config.ROLES.get(role, {}).get("label"),
+            "link": user.get("link"),
+            "link_label": config.ROLES.get(role, {}).get("link_label"),
+            "plan": plan,
+            "subscribed_at": user.get("subscribed_at"),
+            "subscription_ends_at": user.get("subscription_ends_at"),
+            "free_email_limit": config.FREE_EMAIL_LIMIT,
+            "free_remaining": max(0, config.FREE_EMAIL_LIMIT - lifetime) if plan == "free" else None,
+            "total_sent": lifetime,
             "total_failed": sum(1 for r in history if not r["success"]),
             "sent_last_24h": storage.sent_today(sub),
             "daily_limit": config.DAILY_SEND_LIMIT,

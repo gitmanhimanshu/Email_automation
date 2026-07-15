@@ -62,6 +62,34 @@ MAX_PER_BATCH = 25
 DAILY_SEND_LIMIT = int(os.getenv("DAILY_SEND_LIMIT", "80"))
 DEFAULT_DELAY_SECONDS = int(os.getenv("EMAIL_DELAY", "5"))
 
+# Free plan: this many successful sends, lifetime, then a subscription is needed.
+FREE_EMAIL_LIMIT = int(os.getenv("FREE_EMAIL_LIMIT", "5"))
+
+# Who's using Setu. The role decides what link rides along with each email and
+# what the tools call it — the machinery underneath is identical.
+ROLES = {
+    "job_seeker": {
+        "label": "Job seeker",
+        "link_label": "Resume",
+        "link_hint": "your resume — a public Google Drive, Dropbox, or personal site URL",
+        "link_required": True,
+    },
+    "recruiter": {
+        "label": "Recruiter",
+        "link_label": "Job description",
+        "link_hint": "the job posting or careers page you're hiring for",
+        "link_required": False,
+    },
+    "professional": {
+        "label": "Professional",
+        "link_label": "Portfolio",
+        "link_hint": "your portfolio, website, or LinkedIn — optional",
+        "link_required": False,
+    },
+}
+
+DEFAULT_ROLE = "job_seeker"
+
 # Off by default: sends go out to whatever address the model supplies.
 #
 # Set VERIFY_HR_EMAILS=true to require, before every send, that the domain has MX

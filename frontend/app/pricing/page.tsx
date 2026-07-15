@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Check } from "lucide-react";
+import RolesSection from "@/components/RolesSection";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Start for free, upgrade when you need more volume.",
+  description: "Start with 5 free emails. For job seekers, recruiters, and professionals — sent from your own Gmail.",
 };
 
 const plans = [
@@ -17,7 +18,7 @@ const plans = [
       "5 successful emails total",
       "Send from your Gmail",
       "Full AI email generation",
-      "Resume link appending",
+      "Resume / JD / portfolio link appending",
       "Duplicate send prevention",
     ],
     button: "Get started",
@@ -28,7 +29,7 @@ const plans = [
     name: "Pro",
     price: "$9",
     period: "per month",
-    description: "For serious job seekers. Currently manual upgrade only (Payment gateway coming soon).",
+    description: "For a real search, or real outreach. Manual upgrade for now — payment gateway coming.",
     features: [
       "Unlimited emails (up to Gmail limits)",
       "Send from your Gmail",
@@ -151,6 +152,8 @@ export default function Pricing() {
           </div>
         </div>
       </div>
+          <RolesSection />
+
     </main>
   );
 }

@@ -18,7 +18,11 @@ CREATE TABLE IF NOT EXISTS users (
     google_sub   TEXT PRIMARY KEY,
     email        TEXT NOT NULL,
     name         TEXT,
-    resume_link  TEXT,
+    role         TEXT,
+    link         TEXT,
+    plan         TEXT NOT NULL DEFAULT 'free',
+    subscribed_at        TEXT,
+    subscription_ends_at TEXT,
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -43,7 +47,11 @@ CREATE TABLE IF NOT EXISTS users (
     google_sub   TEXT PRIMARY KEY,
     email        TEXT NOT NULL,
     name         TEXT,
-    resume_link  TEXT,
+    role         TEXT,
+    link         TEXT,
+    plan         TEXT NOT NULL DEFAULT 'free',
+    subscribed_at        TEXT,
+    subscription_ends_at TEXT,
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -110,6 +118,17 @@ def _one(conn, query, params=()):
     return rows[0] if rows else None
 
 
+# Columns added after the first release. CREATE TABLE IF NOT EXISTS won't add
+# them to a database that already exists, so they're applied separately.
+MIGRATIONS = [
+    ("users", "role", "TEXT"),
+    ("users", "link", "TEXT"),
+    ("users", "plan", "TEXT NOT NULL DEFAULT 'free'"),
+    ("users", "subscribed_at", "TEXT"),
+    ("users", "subscription_ends_at", "TEXT"),
+]
+
+
 def init():
     with _db() as conn:
         schema = SCHEMA_POSTGRES if using_postgres() else SCHEMA_SQLITE
@@ -119,6 +138,45 @@ def init():
             conn.execute(schema)
         else:
             conn.executescript(schema)
+
+        for table, column, decl in MIGRATIONS:
+            _add_column(conn, table, column, decl)
+
+        _migrate_resume_link(conn)
+
+
+def _columns(conn, table):
+    if using_postgres():
+        rows = _rows(
+            conn,
+            "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?",
+            (table,),
+        )
+    else:
+        rows = [dict(r) for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    return {r["name"] for r in rows}
+
+
+def _add_column(conn, table, column, decl):
+    if column in _columns(conn, table):
+        return
+    # SQLite rejects a non-constant default on ALTER; both accept this form.
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
+def _migrate_resume_link(conn):
+    """Carry old resume_link values into the role-agnostic `link` column.
+
+    resume_link predates recruiters and professionals, for whom the attached URL
+    isn't a resume at all. Existing rows keep their value and are tagged as job
+    seekers, which is what they were.
+    """
+    existing = _columns(conn, "users")
+    if "resume_link" not in existing:
+        return
+
+    conn.execute("UPDATE users SET link = resume_link WHERE link IS NULL AND resume_link IS NOT NULL")
+    conn.execute("UPDATE users SET role = 'job_seeker' WHERE role IS NULL AND resume_link IS NOT NULL")
 
 
 def upsert_user(google_sub, email, name=None):
@@ -143,12 +201,48 @@ def get_user(google_sub):
         return _one(conn, "SELECT * FROM users WHERE google_sub = ?", (google_sub,))
 
 
-def set_resume_link(google_sub, resume_link):
+def set_link(google_sub, link):
+    """The URL appended to every email. What it *is* depends on the user's role."""
     with _db() as conn:
         conn.execute(
-            _sql("UPDATE users SET resume_link = ?, updated_at = ? WHERE google_sub = ?"),
-            (resume_link, _now(), google_sub),
+            _sql("UPDATE users SET link = ?, updated_at = ? WHERE google_sub = ?"),
+            (link, _now(), google_sub),
         )
+
+
+def set_role(google_sub, role):
+    with _db() as conn:
+        conn.execute(
+            _sql("UPDATE users SET role = ?, updated_at = ? WHERE google_sub = ?"),
+            (role, _now(), google_sub),
+        )
+
+
+def set_plan(google_sub, plan, subscribed_at=None, subscription_ends_at=None):
+    """Set the billing plan. Called by whatever records a payment — there is no
+    payment processor wired up yet, so today this is an admin action."""
+    with _db() as conn:
+        conn.execute(
+            _sql(
+                """
+                UPDATE users
+                   SET plan = ?, subscribed_at = ?, subscription_ends_at = ?, updated_at = ?
+                 WHERE google_sub = ?
+                """
+            ),
+            (plan, subscribed_at, subscription_ends_at, _now(), google_sub),
+        )
+
+
+def total_sent(google_sub):
+    """Lifetime successful sends — what the free-plan allowance is counted against."""
+    with _db() as conn:
+        row = _one(
+            conn,
+            "SELECT COUNT(*) AS n FROM sends WHERE google_sub = ? AND success = 1",
+            (google_sub,),
+        )
+    return row["n"] if row else 0
 
 
 def record_sends(google_sub, results):
