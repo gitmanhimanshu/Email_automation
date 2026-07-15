@@ -1,0 +1,25 @@
+# Render Blueprint — "New +" → "Blueprint" pe ye repo select karo aur ye file
+# sab kuch khud configure kar degi. Manual setup ke liye RENDER.md dekho.
+services:
+  - type: web
+    name: setu
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GOOGLE_CLIENT_ID
+        sync: false            # deploy ke waqt Render dashboard poochega
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false            # Neon Postgres connection string (RENDER.md dekho)
+      - key: ADMIN_EMAIL
+        sync: false            # admin panel login (optional — unset = no admin)
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false            # Vercel frontend ka origin, /admin aur /api/stats ke CORS ke liye
+      - key: ENV
+        value: production
+      # PUBLIC_BASE_URL mat daalo — Render RENDER_EXTERNAL_HOSTNAME inject
+      # karta hai aur remote/config.py use khud utha leta hai.

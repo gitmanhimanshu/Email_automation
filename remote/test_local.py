@@ -74,9 +74,15 @@ async def main():
             return 1
         print(f"\nResume gate works — send refused: {blocked.get('needs')}")
 
+        role = unwrap(await client.call_tool("set_role", {"role": "job_seeker"}))
+        show("set_role", role)
+        if not role.get("success"):
+            print("\nPROBLEM: set_role failed.")
+            return 1
+
         link = input("\nYour resume link (public Drive/Dropbox URL): ").strip()
-        saved = unwrap(await client.call_tool("save_resume_link", {"resume_link": link}))
-        show("save_resume_link", saved)
+        saved = unwrap(await client.call_tool("save_link", {"link": link}))
+        show("save_link", saved)
         if not saved.get("success"):
             print("\nFix the link's sharing settings and run this again.")
             return 1

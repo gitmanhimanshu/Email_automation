@@ -487,6 +487,28 @@ async def get_sent_history(limit: int = 20) -> dict:
     }
 
 
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request):
+    """Liveness + readiness, no auth. Render/Railway health checks and uptime
+    monitors hit this; it answers 200 only when the database is reachable."""
+    from starlette.responses import JSONResponse
+
+    try:
+        storage.get_user("health-check-probe")
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    return JSONResponse(
+        {
+            "status": "ok" if db_ok else "degraded",
+            "database": {"backend": storage.backend(), "ok": db_ok},
+            "service": "setu",
+        },
+        status_code=200 if db_ok else 503,
+    )
+
+
 @mcp.custom_route("/api/stats", methods=["GET", "OPTIONS"])
 async def api_stats(request):
     """Read-only stats for the web dashboard.
@@ -560,6 +582,123 @@ async def api_stats(request):
         },
         headers=cors,
     )
+
+
+# --- Admin panel API ---------------------------------------------------------
+# Plain HTTP + Basic auth, not MCP: the admin panel is a web page. Credentials
+# come from ADMIN_EMAIL / ADMIN_PASSWORD env vars; if either is unset, every
+# route here answers 503 and the panel simply does not exist.
+
+def _admin_cors():
+    return {
+        "Access-Control-Allow-Origin": config.FRONTEND_ORIGIN,
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Vary": "Origin",
+    }
+
+
+def _admin_gate(request):
+    """A JSONResponse to return early, or None when the caller is the admin."""
+    import base64
+    import secrets
+
+    from starlette.responses import JSONResponse
+
+    cors = _admin_cors()
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    if not (config.ADMIN_EMAIL and config.ADMIN_PASSWORD):
+        return JSONResponse(
+            {"error": "admin is not configured on this server"},
+            status_code=503,
+            headers=cors,
+        )
+
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("basic "):
+        return JSONResponse({"error": "auth required"}, status_code=401, headers=cors)
+
+    try:
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode()
+        email, _, password = decoded.partition(":")
+    except Exception:
+        return JSONResponse({"error": "bad credentials"}, status_code=401, headers=cors)
+
+    ok = secrets.compare_digest(
+        email.strip().lower(), config.ADMIN_EMAIL
+    ) & secrets.compare_digest(password, config.ADMIN_PASSWORD)
+    if not ok:
+        return JSONResponse({"error": "bad credentials"}, status_code=401, headers=cors)
+
+    return None
+
+
+@mcp.custom_route("/admin/api/overview", methods=["GET", "OPTIONS"])
+async def admin_overview(request):
+    """Login check + site-wide totals in one call."""
+    from starlette.responses import JSONResponse
+
+    denied = _admin_gate(request)
+    if denied:
+        return denied
+    return JSONResponse(dict(storage.admin_totals() or {}), headers=_admin_cors())
+
+
+@mcp.custom_route("/admin/api/users", methods=["GET", "OPTIONS"])
+async def admin_users(request):
+    """Every user with plan and send counts."""
+    from starlette.responses import JSONResponse
+
+    denied = _admin_gate(request)
+    if denied:
+        return denied
+    return JSONResponse({"users": storage.admin_list_users()}, headers=_admin_cors())
+
+
+@mcp.custom_route("/admin/api/plan", methods=["POST", "OPTIONS"])
+async def admin_set_plan(request):
+    """Change a user's plan. Body: {google_sub, plan: "free"|"pro", months?: int}."""
+    from datetime import datetime, timedelta, timezone
+
+    from starlette.responses import JSONResponse
+
+    denied = _admin_gate(request)
+    if denied:
+        return denied
+
+    cors = _admin_cors()
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400, headers=cors)
+
+    sub = (payload.get("google_sub") or "").strip()
+    plan = (payload.get("plan") or "").strip().lower()
+    if not sub or plan not in ("free", "pro"):
+        return JSONResponse(
+            {"error": "google_sub and plan ('free' or 'pro') are required"},
+            status_code=400,
+            headers=cors,
+        )
+    if not storage.get_user(sub):
+        return JSONResponse({"error": "no such user"}, status_code=404, headers=cors)
+
+    if plan == "free":
+        storage.set_plan(sub, "free", None, None)
+    else:
+        months = int(payload.get("months") or 1)
+        now = datetime.now(timezone.utc)
+        ends = now + timedelta(days=30 * max(1, months))
+        storage.set_plan(
+            sub,
+            "pro",
+            now.isoformat(timespec="seconds"),
+            ends.isoformat(timespec="seconds"),
+        )
+
+    return JSONResponse({"success": True, "user": storage.get_user(sub)}, headers=cors)
 
 
 def main():

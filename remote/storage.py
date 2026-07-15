@@ -297,6 +297,47 @@ def sent_today(google_sub):
     return row["n"] if row else 0
 
 
+def admin_totals():
+    """Site-wide counters for the admin panel."""
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+    with _db() as conn:
+        return _one(
+            conn,
+            """
+            SELECT
+                (SELECT COUNT(*) FROM users)                                        AS users,
+                (SELECT COUNT(*) FROM users WHERE plan != 'free')                   AS subscribed,
+                (SELECT COUNT(*) FROM sends WHERE success = 1)                      AS sent,
+                (SELECT COUNT(*) FROM sends WHERE success = 0)                      AS failed,
+                (SELECT COUNT(*) FROM sends WHERE success = 1 AND sent_at > ?)      AS sent_24h
+            """,
+            (since,),
+        )
+
+
+def admin_list_users():
+    """Every user with their send counts, most active first. Admin panel only."""
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+    with _db() as conn:
+        return _rows(
+            conn,
+            """
+            SELECT u.google_sub, u.email, u.name, u.role, u.link, u.plan,
+                   u.subscribed_at, u.subscription_ends_at, u.created_at,
+                   COALESCE(SUM(CASE WHEN s.success = 1 THEN 1 ELSE 0 END), 0) AS sent,
+                   COALESCE(SUM(CASE WHEN s.success = 0 THEN 1 ELSE 0 END), 0) AS failed,
+                   COALESCE(SUM(CASE WHEN s.success = 1 AND s.sent_at > ? THEN 1 ELSE 0 END), 0) AS sent_24h,
+                   MAX(s.sent_at) AS last_sent_at
+            FROM users u
+            LEFT JOIN sends s ON s.google_sub = u.google_sub
+            GROUP BY u.google_sub, u.email, u.name, u.role, u.link, u.plan,
+                     u.subscribed_at, u.subscription_ends_at, u.created_at
+            ORDER BY sent DESC, u.created_at DESC
+            """,
+            (since,),
+        )
+
+
 def already_contacted(google_sub, emails):
     """Which of these addresses this user has already successfully mailed."""
     if not emails:

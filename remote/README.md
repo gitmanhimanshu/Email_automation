@@ -124,6 +124,13 @@ DAILY_SEND_LIMIT=80
 EMAIL_DELAY=5
 VERIFY_HR_EMAILS=false
 ENV=production
+
+# Admin panel (frontend /admin page). Dono set nahi kiye to admin API
+# routes 503 dete hain — panel exist hi nahi karta. Password strong rakho;
+# isse har user ka data dikhta hai aur plans badalte hain.
+ADMIN_EMAIL=you@gmail.com
+ADMIN_PASSWORD=change-me
+FRONTEND_ORIGIN=https://your-frontend.vercel.app
 ```
 
 `PUBLIC_BASE_URL` **HTTPS hona chahiye**. HTTP pe FastMCP non-secure cookies ka
@@ -185,8 +192,13 @@ docker build -t setu .
 docker run -p 8000:8000 --env-file .env -v "$(pwd)/data:/app/data" setu
 ```
 
-Render aur Fly.io bhi chalenge — dono Dockerfile + persistent volume support karte
-hain. Render ka domain bhi auto-detect hota hai (`RENDER_EXTERNAL_HOSTNAME`).
+**Render pe deploy karna hai?** Pura step-by-step guide: [RENDER.md](../RENDER.md)
+(blueprint `render.yaml` repo mein already hai). Fly.io bhi chalega — Dockerfile +
+volume support hai.
+
+**Health check:** har deploy pe `GET /health` available hai — 200 + database
+status deta hai, koi auth nahi chahiye. Render/Railway ka health check aur
+uptime monitors isi pe lagao.
 
 ### ❌ Vercel pe deploy mat karna
 

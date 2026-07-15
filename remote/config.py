@@ -90,6 +90,11 @@ ROLES = {
 
 DEFAULT_ROLE = "job_seeker"
 
+# Admin panel login. Both must be set or every /admin/api route answers 503 —
+# there is no default password, so an unconfigured deploy has no admin door.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
 # Off by default: sends go out to whatever address the model supplies.
 #
 # Set VERIFY_HR_EMAILS=true to require, before every send, that the domain has MX

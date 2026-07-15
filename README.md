@@ -20,7 +20,8 @@
 
 **Setup docs:**
 [GOOGLE_SETUP.md](GOOGLE_SETUP.md) — Google Cloud ka pura walkthrough (scopes, audience, client) ·
-[NGROK_CHATGPT.md](NGROK_CHATGPT.md) — ngrok se ChatGPT/claude.ai mein test karo
+[NGROK_CHATGPT.md](NGROK_CHATGPT.md) — ngrok se ChatGPT/claude.ai mein test karo ·
+[RENDER.md](RENDER.md) — Render pe deploy
 
 **Standalone** mein koi model loop mein nahi hota, isliye Gemini content likhta hai.
 
