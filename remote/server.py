@@ -30,11 +30,14 @@ mcp = FastMCP(
     "Setu",
     auth=auth,
     instructions=(
-        "Setu sends email from the signed-in user's own Gmail. It serves three "
-        "kinds of people, and the role changes what a good email looks like:\n"
+        "Setu sends email from the signed-in user's own Gmail — not only job "
+        "applications. Any email the user asks for is in scope: applications, "
+        "meeting requests, follow-ups, introductions, greetings, thank-yous. "
+        "The role changes what a good email looks like:\n"
         "  - job_seeker: applying for jobs. Resume link required.\n"
         "  - recruiter: reaching out to candidates about a role they're hiring for.\n"
-        "  - professional: general outreach — clients, partners, cold contacts.\n\n"
+        "  - professional: everything else — clients, partners, colleagues, "
+        "meetings, and everyday professional messages.\n\n"
         "Always work in this order:\n"
         "1. get_my_profile — who they are, their role, plan, and quota.\n"
         "2. If no role is set, ask which one fits and call set_role. Ask; do not "
@@ -42,17 +45,20 @@ mcp = FastMCP(
         "call save_link. Do this before writing anything — being told 'no resume "
         "saved' after you've drafted ten emails wastes everyone's time. Never "
         "invent a URL.\n"
-        "3. Research the recipients and find real addresses on real pages. Never "
-        "construct an address from a naming pattern — a wrong address bounces, and "
-        "bounces damage the user's Gmail reputation. Prefer published addresses "
-        "over guessed personal ones.\n"
-        "4. verify_hr_emails — optional, but call it when unsure about an address.\n"
-        "5. Write one genuinely different email per recipient, grounded in "
-        "something real about them: the actual job posting, the candidate's actual "
-        "work, the company's actual situation.\n"
+        "3. If the user gave you the recipient's address, use it as given. "
+        "Research only when you have to find addresses yourself — and then find "
+        "real addresses on real pages. Never construct an address from a naming "
+        "pattern: a wrong address bounces, and bounces damage the user's Gmail "
+        "reputation.\n"
+        "4. verify_hr_emails — optional, but call it when unsure about an address "
+        "you found yourself. Skip it for addresses the user gave you.\n"
+        "5. Write the email for its actual recipient and purpose. For "
+        "applications, ground it in the real job posting; for a meeting request "
+        "or greeting, keep it natural — not everything is a pitch.\n"
         "6. Show the user the recipient list and at least one full body, and get "
         "explicit approval.\n"
-        "7. send_application or send_applications.\n\n"
+        "7. send_application or send_applications. For casual or general emails "
+        "where the saved link does not belong, pass include_link=false.\n\n"
         "Sending is irreversible. Never send without showing the user first. If a "
         "tool reports the free allowance is spent, tell the user to subscribe — "
         "do not try to work around it."
@@ -319,11 +325,19 @@ async def send_application(
     body: str,
     company: str | None = None,
     source_url: str | None = None,
+    include_link: bool = True,
 ) -> dict:
-    """Send ONE job application from the user's Gmail. Irreversible.
+    """Send ONE email from the user's Gmail. Irreversible.
+
+    Despite the name, this sends any email the user asks for — a job
+    application, a meeting request, a follow-up, a greeting. For a job seeker
+    it refuses until a resume link is saved; other roles have no such gate.
+
+    The user's saved link is appended by default. Pass include_link=false for
+    general messages where it does not belong (greetings, meeting requests,
+    replies to someone who already has it).
 
     Show the user the full subject and body and get their approval first.
-    Refuses until the user has a resume link saved.
     """
     access_token, identity = await _identity()
     sub = identity["sub"]
@@ -353,7 +367,7 @@ async def send_application(
         access_token,
         to,
         subject,
-        _append_link(body, user.get("link"), _role_of(user)),
+        _append_link(body, user.get("link") if include_link else None, _role_of(user)),
         sender=identity["email"],
     )
     result.update(company=company, source_url=source_url)
@@ -365,12 +379,16 @@ async def send_application(
 async def send_applications(
     applications: list[Application],
     delay_seconds: int | None = None,
+    include_link: bool = True,
 ) -> dict:
-    """Send a batch of applications, pausing between each. Irreversible.
+    """Send a batch of emails, pausing between each. Irreversible.
+
+    Works for any kind of email, not only applications. Pass include_link=false
+    to leave the user's saved link off every message in the batch.
 
     Show the user every recipient and at least one full body, and get explicit
-    approval, before calling this. Each application should be written for its own
-    company — do not send the same body to everyone.
+    approval, before calling this. Each email should be written for its own
+    recipient — do not send the same body to everyone.
     """
     if not applications:
         return {"success": False, "error": "No applications provided."}
@@ -420,7 +438,7 @@ async def send_applications(
         verdict = {c["email"]: c for c in checks}
 
     pause = config.DEFAULT_DELAY_SECONDS if delay_seconds is None else max(0, delay_seconds)
-    link, role = user.get("link"), _role_of(user)
+    link, role = (user.get("link") if include_link else None), _role_of(user)
 
     sent, skipped = [], []
     for application in applications:
