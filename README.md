@@ -2,8 +2,6 @@
 
 Setu is an open-source **Model Context Protocol (MCP)** server that allows AI assistants (Claude, ChatGPT, Cursor, Windsurf, etc.) to securely automate email outreach directly from your Gmail account.
 
-**Frontend Repository:** [Setu Frontend](https://github.com/gitmanhimanshu/setu-frontend)
-
 ## Overview
 
 An AI assistant can write a great email, but it doesn't have hands to send it. Setu bridges this gap by exposing Gmail capabilities to AI models via the standard Model Context Protocol (MCP). 
