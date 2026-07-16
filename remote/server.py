@@ -14,7 +14,7 @@ from fastmcp.server.auth.providers.google import GoogleProvider
 from fastmcp.server.dependencies import get_access_token
 from pydantic import BaseModel, Field
 
-from . import config, gmail, storage, verify
+from . import config, geo, gmail, storage, verify
 
 storage.init()
 
@@ -527,6 +527,58 @@ async def health(request):
     )
 
 
+def _client_ip(request):
+    """The visitor's IP, honouring the proxy chain Render/Railway put in front.
+
+    X-Forwarded-For is 'client, proxy1, proxy2'; the first hop is the real
+    client. Falls back to the socket address for a direct connection.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real = request.headers.get("x-real-ip", "").strip()
+    if real:
+        return real
+    return request.client.host if request.client else ""
+
+
+@mcp.custom_route("/api/visit", methods=["POST", "OPTIONS"])
+async def api_visit(request):
+    """Log a page view. Public, unauthenticated, and never fails the visitor.
+
+    Dedupes by IP: a returning visitor bumps a counter rather than adding a row,
+    and only a brand-new IP triggers a geolocation lookup.
+    """
+    from starlette.responses import JSONResponse
+
+    cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type"}
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    ip = _client_ip(request)
+    if not ip:
+        return JSONResponse({"ok": True}, headers=cors)  # nothing to record; don't complain
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    path = (body.get("path") or "/")[:400]
+    user_agent = request.headers.get("user-agent", "")[:400]
+
+    try:
+        is_new = storage.touch_visitor(ip, path, user_agent)
+        if is_new:
+            located = await geo.locate(ip)
+            if located:
+                storage.set_visitor_geo(ip, **located)
+    except Exception:
+        # Analytics must never take the site down. Swallow and move on.
+        pass
+
+    return JSONResponse({"ok": True}, headers=cors)
+
+
 @mcp.custom_route("/api/stats", methods=["GET", "OPTIONS"])
 async def api_stats(request):
     """Read-only stats for the web dashboard.
@@ -673,6 +725,22 @@ async def admin_users(request):
     if denied:
         return denied
     return JSONResponse({"users": storage.admin_list_users()}, headers=_admin_cors())
+
+
+@mcp.custom_route("/admin/api/visitors", methods=["GET", "OPTIONS"])
+async def admin_visitors(request):
+    """Paginated visitor log, most recently active first."""
+    from starlette.responses import JSONResponse
+
+    denied = _admin_gate(request)
+    if denied:
+        return denied
+
+    try:
+        page = int(request.query_params.get("page", "1"))
+    except ValueError:
+        page = 1
+    return JSONResponse(dict(storage.admin_list_visitors(page=page)), headers=_admin_cors())
 
 
 @mcp.custom_route("/admin/api/plan", methods=["POST", "OPTIONS"])

@@ -40,6 +40,20 @@ CREATE TABLE IF NOT EXISTS sends (
 );
 CREATE INDEX IF NOT EXISTS idx_sends_user ON sends (google_sub, sent_at);
 CREATE INDEX IF NOT EXISTS idx_sends_target ON sends (google_sub, to_email);
+
+CREATE TABLE IF NOT EXISTS visitors (
+    ip           TEXT PRIMARY KEY,
+    country      TEXT,
+    region       TEXT,
+    city         TEXT,
+    org          TEXT,
+    user_agent   TEXT,
+    path         TEXT,
+    visit_count  INTEGER NOT NULL DEFAULT 1,
+    first_seen   TEXT NOT NULL,
+    last_seen    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_visitors_last_seen ON visitors (last_seen);
 """
 
 SCHEMA_POSTGRES = """
@@ -69,6 +83,20 @@ CREATE TABLE IF NOT EXISTS sends (
 );
 CREATE INDEX IF NOT EXISTS idx_sends_user ON sends (google_sub, sent_at);
 CREATE INDEX IF NOT EXISTS idx_sends_target ON sends (google_sub, to_email);
+
+CREATE TABLE IF NOT EXISTS visitors (
+    ip           TEXT PRIMARY KEY,
+    country      TEXT,
+    region       TEXT,
+    city         TEXT,
+    org          TEXT,
+    user_agent   TEXT,
+    path         TEXT,
+    visit_count  INTEGER NOT NULL DEFAULT 1,
+    first_seen   TEXT NOT NULL,
+    last_seen    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_visitors_last_seen ON visitors (last_seen);
 """
 
 
@@ -336,6 +364,79 @@ def admin_list_users():
             """,
             (since,),
         )
+
+
+# --- Visitors -----------------------------------------------------------------
+
+def touch_visitor(ip, path=None, user_agent=None):
+    """Record one page hit. Returns True if this IP is new.
+
+    A repeat visit from the same IP just bumps visit_count and last_seen — the
+    caller uses the True return to decide whether a geolocation lookup is worth
+    doing, so a returning visitor costs no external call.
+    """
+    now = _now()
+    with _db() as conn:
+        existing = _one(conn, "SELECT ip FROM visitors WHERE ip = ?", (ip,))
+        if existing:
+            conn.execute(
+                _sql(
+                    """
+                    UPDATE visitors
+                       SET visit_count = visit_count + 1,
+                           last_seen = ?, path = ?, user_agent = ?
+                     WHERE ip = ?
+                    """
+                ),
+                (now, path, user_agent, ip),
+            )
+            return False
+
+        conn.execute(
+            _sql(
+                """
+                INSERT INTO visitors (ip, path, user_agent, visit_count, first_seen, last_seen)
+                VALUES (?, ?, ?, 1, ?, ?)
+                """
+            ),
+            (ip, path, user_agent, now, now),
+        )
+        return True
+
+
+def set_visitor_geo(ip, country=None, region=None, city=None, org=None):
+    with _db() as conn:
+        conn.execute(
+            _sql("UPDATE visitors SET country = ?, region = ?, city = ?, org = ? WHERE ip = ?"),
+            (country, region, city, org, ip),
+        )
+
+
+def admin_list_visitors(page=1, per_page=25):
+    """Visitors, most recently active first, paginated. Admin panel only."""
+    page = max(1, int(page))
+    per_page = max(1, min(100, int(per_page)))
+    offset = (page - 1) * per_page
+
+    with _db() as conn:
+        total = (_one(conn, "SELECT COUNT(*) AS n FROM visitors") or {}).get("n", 0)
+        unique_ips = total  # ip is the primary key, so rows == unique IPs
+        hits = (_one(conn, "SELECT COALESCE(SUM(visit_count), 0) AS n FROM visitors") or {}).get("n", 0)
+        rows = _rows(
+            conn,
+            "SELECT * FROM visitors ORDER BY last_seen DESC LIMIT ? OFFSET ?",
+            (per_page, offset),
+        )
+
+    return {
+        "visitors": rows,
+        "total": total,
+        "unique_ips": unique_ips,
+        "total_hits": hits,
+        "page": page,
+        "per_page": per_page,
+        "pages": max(1, (total + per_page - 1) // per_page),
+    }
 
 
 def already_contacted(google_sub, emails):
