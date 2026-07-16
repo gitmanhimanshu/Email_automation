@@ -191,9 +191,12 @@ docker build -t setu .
 docker run -p 8000:8000 --env-file .env -v "$(pwd)/data:/app/data" setu
 ```
 
-**Render pe deploy karna hai?** Pura step-by-step guide: [RENDER.md](../RENDER.md)
-(blueprint `render.yaml` repo mein already hai). Fly.io bhi chalega — Dockerfile +
-volume support hai.
+**Render pe deploy karna hai?** Repo root ka [render.yaml](../render.yaml) blueprint
+use karo: Render → New + → Blueprint → repo select → env vars bharo (upar wale hi;
+`PUBLIC_BASE_URL`/`PORT` yahan bhi mat daalna — Render `RENDER_EXTERNAL_HOSTNAME`
+inject karta hai). Health check `/health` pe pehle se configured hai. Free plan pe
+**persistent disk nahi milti**, isliye `DATABASE_URL` (Neon) zaroori hai — warna har
+deploy pe data wipe. Fly.io bhi chalega — Dockerfile + volume support hai.
 
 **Health check:** har deploy pe `GET /health` available hai — 200 + database
 status deta hai, koi auth nahi chahiye. Render/Railway ka health check aur
