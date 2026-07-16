@@ -1,593 +1,135 @@
-# 📧 Email Automation System
+# Setu - Bridge AI to Opportunity
 
-**Automated Job Application Email Sender with AI-Generated Content**
+Setu is an open-source **Model Context Protocol (MCP)** server that allows AI assistants (Claude, ChatGPT, Cursor, Windsurf, etc.) to securely automate email outreach directly from your Gmail account.
 
-✨ **Ye project tumhari personal Gmail se HR ko automatic emails bhejta hai**  
-📊 **HR ki sheet ya manual entry ke madhyam se**
+**Frontend Repository:** [Setu Frontend](https://github.com/gitmanhimanshu/setu-frontend)
 
----
+## Overview
 
-## 🔀 Teen Tarike — apna chuno
+An AI assistant can write a great email, but it doesn't have hands to send it. Setu bridges this gap by exposing Gmail capabilities to AI models via the standard Model Context Protocol (MCP). 
 
-| | **Standalone** | **Local MCP** | **Hosted MCP** |
-|---|---|---|---|
-| Email kaun likhta hai | Gemini | Claude | Claude |
-| Kaun use kar sakta hai | Sirf tum | Sirf tum | **Koi bhi user** |
-| User ko install karna padta hai | Haan | Haan | **Kuch nahi** |
-| Chalane ka tarika | `python app.py` | Claude Desktop | claude.ai / ChatGPT |
-| Google setup | User khud karta hai | User khud karta hai | **Tum ek baar** |
-| Guide | Neeche ⬇️ | [MCP_SETUP.md](MCP_SETUP.md) | [remote/README.md](remote/README.md) |
+Setu is built for:
+1. **Job Seekers:** Automatically find jobs and send applications with your resume attached.
+2. **Recruiters:** Do candidate outreach at scale with Job Descriptions.
+3. **Professionals:** Send cold emails, follow-ups, or client pitches with your portfolio.
 
-**Setup docs:**
-[GOOGLE_SETUP.md](GOOGLE_SETUP.md) — Google Cloud ka pura walkthrough (scopes, audience, client) ·
-[NGROK_CHATGPT.md](NGROK_CHATGPT.md) — ngrok se ChatGPT/claude.ai mein test karo ·
-[RENDER.md](RENDER.md) — Render pe deploy
+## Key Features
 
-**Standalone** mein koi model loop mein nahi hota, isliye Gemini content likhta hai.
-
-**MCP** modes mein Claude khud likhta hai — usse tumhari actual skills aur conversation
-ka context pata hota hai, jo ek fixed prompt ke paas kabhi nahi hoga. Isliye MCP mein
-Gemini use hi nahi hota.
-
-**Hosted** wala asli product hai: user claude.ai pe connector add karta hai,
-"Sign in with Google" karta hai, aur bolta hai *"hiring companies dhundo aur apply karo"* —
-Claude research karta hai, likhta hai, server bhejta hai.
+- **Sends from your actual Gmail:** Emails show up in your "Sent" folder, and replies come straight to your inbox.
+- **100% Secure & Privacy First:** Requests ONLY the `gmail.send` scope. It cannot read a single email in your inbox. No passwords are ever stored (uses Google OAuth).
+- **Paced Sending:** Adds a 5-second gap between emails by default so Gmail doesn't flag the run as automation.
+- **Rate Limited:** Strict server-side limits (e.g. 80/day, 25/batch) to protect your Gmail reputation.
+- **Duplicate Prevention:** Every sent email is recorded in a SQLite database to prevent emailing the same person twice.
+- **Link Verification:** Checks if your Resume/Portfolio Google Drive link is public before sending, preventing access request bounces.
 
 ---
 
-## 🔒 Ek rule jo kabhi mat todna
+## MCP Tools Provided
 
-Ye app sirf **`gmail.send`** scope maangta hai. `gmail.readonly` add karne ka man kare
-to yaad rakhna:
+Setu provides the following tools to the LLM:
 
-| Scope | Tier | Cost |
-|---|---|---|
-| `gmail.send` | Sensitive | Free verification |
-| `gmail.readonly` / `compose` / `modify` | **Restricted** | **$15k-75k CASA audit, har saal** |
-
-Ek line ka farak, lakhon rupaye ka. ([Google docs](https://developers.google.com/workspace/gmail/api/auth/scopes))
-
----
-
-## 🔄 How It Works (Simple Flow)
-
-### 📝 Imagine Karo:
-
-```
-👤 You (Job Seeker)
-    ↓
-📊 HR Contacts ki List (Google Sheet ya Manual)
-    ↓
-🤖 AI (Gemini) - Har HR ke liye personalized email likhta hai
-    ↓
-📧 Your Gmail - Automatically emails bhejta hai
-    ↓
-✅ HR ko email milta hai (professional & personalized)
-```
+1. `get_my_profile`: Fetches the user's role, saved link, plan, and quota.
+2. `set_role`: Sets the role (`job_seeker`, `recruiter`, `professional`).
+3. `save_link`: Saves the URL appended to every email (Resume/JD/Portfolio).
+4. `verify_hr_emails`: Checks MX records to verify if an email address can receive mail.
+5. `send_application`: Sends a single email.
+6. `send_applications`: Sends a batch of emails (max 25 per call).
+7. `get_sent_history`: Retrieves the user's send history to avoid duplicates.
 
 ---
 
-## 🎬 Real-Life Example
+## Architecture & Modes
 
-### Scenario: Tumhe 50 companies mein apply karna hai
+Setu is built with **Python**, **Flask**, and the **mcp** Python SDK. It supports two modes:
 
-**Without This Tool:**
-- ❌ Har email manually likhna padega (2-3 min per email)
-- ❌ 50 emails = 2-3 hours ka kaam
-- ❌ Copy-paste se generic lagega
-- ❌ Mistakes ho sakte hain
+### 1. Remote SaaS Mode (SSE / Web)
+This is the default mode used for the hosted platform. It uses Server-Sent Events (SSE) over HTTP to communicate with MCP clients (like ChatGPT/Claude web interfaces) and uses OAuth for Google authentication.
+- **Entry point:** `app.py`
+- **Database:** `data/setu.db` (User profiles, tokens, limits, history)
 
-**With This Tool:**
-- ✅ Ek baar setup karo (5 minutes)
-- ✅ HR list paste karo (Google Sheet ya manual)
-- ✅ Click "Send" - bas!
-- ✅ 50 personalized emails = 5 minutes
-- ✅ Har email unique aur professional
+### 2. Standalone Local Mode (stdio)
+If you want to run Setu locally for yourself (e.g. in Cursor or Claude Code CLI) without the web dashboard, you can use the stdio transport mode.
+- **Entry point:** `main.py`
+- **Authentication:** Local `credentials.json` flow.
 
 ---
 
-## 🎯 Step-by-Step Journey
+## Self-Hosting / Local Setup
 
-### 1️⃣ **Setup (One Time - 5 minutes)**
+### 1. Prerequisites
+- Python 3.10+
+- A Google Cloud Project with the **Gmail API** enabled.
+- OAuth 2.0 Client Credentials (Desktop App for Standalone, Web Application for SaaS).
 
-```
-Install → Configure → Authenticate
-   ↓         ↓            ↓
-  pip     .env file    Gmail login
-```
-
-**Kya karna hai:**
-- Dependencies install karo
-- Apni details bharo (.env file)
-- Gmail se connect karo (browser mein login)
-
-**Result:** System ready! ✅
-
----
-
-### 2️⃣ **Add HR Contacts (Every Time)**
-
-**Option A: Google Sheet** 📊
-```
-Create Sheet → Make Public → Copy URL → Paste in App
-```
-
-**Option B: Manual Entry** ✍️
-```
-Open App → Add Recipient → Fill Details → Save
-```
-
-**Data Format:**
-- Name: Rahul Kumar
-- Email: hr@company.com
-- Company: ABC Corp
-- Position: Software Engineer (optional)
-- Resume: Your custom link (optional)
-
----
-
-### 3️⃣ **AI Magic Happens** 🤖
-
-```
-Your Data → Gemini AI → Personalized Email
-```
-
-**Example:**
-
-**Input:**
-- Name: Priya
-- Company: XYZ Tech
-- Position: Full Stack Developer
-
-**AI Output:**
-```
-Hi Priya,
-
-I am writing to express my interest in the Full Stack Developer 
-position at XYZ Tech. With my experience in React, Node.js, and 
-cloud technologies, I believe I would be a great fit for your team.
-
-Please find my resume here: [your-link]
-
-Looking forward to discussing this opportunity.
-
-Best regards,
-Himanshu Yadav
-```
-
----
-
-### 4️⃣ **Send Emails** 📤
-
-```
-Review → Click Send → Sit Back & Relax
-```
-
-**What Happens:**
-- Email 1 → Send → Wait 5 seconds
-- Email 2 → Send → Wait 5 seconds
-- Email 3 → Send → Wait 5 seconds
-- ...and so on
-
-**Why Wait?** Gmail ko lagta hai tum human ho, bot nahi! 😊
-
----
-
-### 5️⃣ **Track Results** 📊
-
-```
-sent_emails.json
-    ↓
-✅ Rahul (ABC Corp) - Sent successfully
-✅ Priya (XYZ Tech) - Sent successfully
-❌ Amit (Tech Inc) - Failed (invalid email)
-```
-
-**You Get:**
-- Total emails sent
-- Success count
-- Failed count (with reasons)
-- Message IDs for tracking
-
----
-
-## 💡 Real Use Cases
-
-### Use Case 1: Mass Job Applications
-```
-50 companies ki list → 1 click → 50 personalized emails
-Time saved: 2-3 hours → 5 minutes
-```
-
-### Use Case 2: Different Positions
-```
-10 companies - Software Engineer
-15 companies - Full Stack Developer
-20 companies - Backend Developer
-
-Each gets position-specific email! 🎯
-```
-
-### Use Case 3: Custom Resumes
-```
-Startup companies → Startup-focused resume
-Corporate companies → Corporate resume
-Each recipient gets relevant resume link!
-```
-
----
-
-## 🎨 Visual Workflow
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  YOU                                                    │
-│  ├─ Open browser: http://localhost:5000                │
-│  ├─ Fill your details (name, email, resume)            │
-│  └─ Save configuration                                 │
-└─────────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│  ADD HR CONTACTS                                        │
-│  ├─ Option 1: Paste Google Sheet URL                   │
-│  │   └─ Click "Load" → Auto-fills all recipients       │
-│  │                                                      │
-│  └─ Option 2: Manual Entry                             │
-│      └─ Click "Add" → Fill form → Repeat               │
-└─────────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│  PREVIEW (Optional)                                     │
-│  └─ Test with sample name/company                      │
-│      └─ See how email will look                        │
-└─────────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│  SEND EMAILS                                            │
-│  ├─ Click "Send All Emails"                            │
-│  ├─ Confirm (yes/no)                                   │
-│  └─ Watch progress in real-time                        │
-│      ├─ [1/50] Sending to Rahul... ✅                  │
-│      ├─ [2/50] Sending to Priya... ✅                  │
-│      └─ [3/50] Sending to Amit... ✅                   │
-└─────────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│  RESULTS                                                │
-│  ├─ Browser: Success/Failure summary                   │
-│  └─ File: sent_emails.json (complete log)              │
-└─────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🎯 Features
-
-- ✅ **Web Interface** - No terminal commands needed
-- ✅ **Google Sheets Support** - Public sheet se automatic data load
-- ✅ **Manual Entry** - Browser mein directly recipients add karo
-- ✅ **AI-Generated Content** - Gemini se personalized emails (model `.env` mein badal sakte ho)
-- ✅ **Job Position Based** - Har position ke liye customized email
-- ✅ **Custom Resume Links** - Har recipient ka alag resume link
-- ✅ **Automatic Fallback** - Gemini fail hone par template use hoga
-- ✅ **Rate Limiting** - Spam avoid karne ke liye automatic delay
-- ✅ **Complete Logging** - Har email ka record `sent_emails.json` mein
-- ✅ **Secure** - Credentials safely managed
-
----
-
-## 🚀 Quick Start
-
-### Step 1: Install Dependencies
-
+### 2. Installation
 ```bash
+git clone https://github.com/gitmanhimanshu/Email_automation.git
+cd Email_automation
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+# Mac/Linux
+source venv/bin/activate
+
 pip install -r requirements.txt
 ```
 
-### Step 2: Configure .env File
-
-`.env.example` ko `.env` naam se copy karke bharo:
-
+### 3. Environment Variables
+Copy `.env.example` to `.env` and fill in your details:
 ```env
-YOUR_NAME=Your Full Name
-YOUR_EMAIL=your.email@gmail.com
-RESUME_LINK=https://your-resume-link.com
-EMAIL_DELAY=5
-
-GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=xxxx
-
-GEMINI_API_KEY=your_api_key_here
+# For Remote SaaS Mode
+SECRET_KEY=your_secure_random_key
+OAUTH_CLIENT_ID=your_google_oauth_client_id.apps.googleusercontent.com
+OAUTH_CLIENT_SECRET=your_google_oauth_client_secret
+SITE_URL=http://localhost:3000
 ```
 
-**Google client ID/secret:** [Cloud Console](https://console.cloud.google.com/apis/credentials)
-→ Gmail API enable karo → Create OAuth client ID → type **Desktop app**.
-(Ya JSON download karke `cred.json` naam se project folder mein rakh do.)
+### 4. Running the Server
 
-**Gemini API Key:** https://aistudio.google.com/app/apikey
-
-### Step 3: Gmail Login (ek baar)
-
-```bash
-python authorize.py
-```
-
-Browser khulega. Jis Gmail se bhejna hai usse login karo → Allow.
-
-### Step 4: Start Web Interface
-
+**To run the SaaS Web Server (SSE transport + OAuth):**
 ```bash
 python app.py
 ```
+*Server runs on `http://localhost:8000`*
 
-Browser mein kholo: **http://localhost:5000**
-
----
-
-## 🎨 Web Interface Usage
-
-### 1️⃣ Configuration Tab (⚙️)
-
-Sabse pehle configuration save karo:
-- Your Name
-- Your Email
-- Resume Link (default)
-- Gemini API Key
-- Email Delay (5 seconds recommended)
-
-Click: **"Save Configuration"**
-
-### 2️⃣ Recipients Tab (👥)
-
-**Option A: Manual Entry**
-- "Add Recipient" button click karo
-- Fill: Name, Email, Company
-- Optional: Job Position, Custom Resume Link
-- Multiple recipients add kar sakte ho
-
-**Option B: Google Sheets**
-- "Google Sheets" tab click karo
-- Public sheet URL paste karo
-- Click: **"Load Recipients from Sheet"**
-- Automatically manual tab mein load ho jayega
-
-### 3️⃣ Preview Tab (👁️)
-
-Email preview dekhne ke liye:
-- Name aur Company enter karo
-- Click: **"Generate Preview"**
-- AI-generated email content dikhega
-
-### 4️⃣ Send Tab (🚀)
-
-Ready ho to:
-- Click: **"Send All Emails"**
-- Confirmation dialog aayega
-- Progress real-time dikhega
-- Results automatically save honge
-
----
-
-## 📊 Google Sheet Format
-
-**Sheet ko public karo:**
-File → Share → Anyone with link can view
-
-**Required Column:** `email`
-
-**Optional Columns (flexible naming):**
-- `name` / `Name` / `Full Name`
-- `company` / `Company Name` / `Organization`
-- `job_position` / `Position` / `Role` / `Job Title`
-- `resume_link` / `Resume` / `CV Link`
-
-**Example Sheet:**
-
-| name  | email           | company  | job_position       | resume_link                |
-|-------|-----------------|----------|-------------------|----------------------------|
-| Rahul | hr1@example.com | ABC Corp | Software Engineer | https://resume1.com        |
-| Priya | hr2@example.com | XYZ Ltd  | Full Stack Dev    |                            |
-| Amit  | hr3@example.com | Tech Inc |                   | https://resume2.com        |
-
----
-
-## 🔄 How It Works
-
-### Input:
-- **Manual:** Browser mein form fill karo
-- **Sheet:** Public Google Sheet URL paste karo
-
-### Processing:
-1. Data extract (email, name, company, position, resume)
-2. Gemini AI se personalized content generate
-3. Fallback template (agar Gemini fail ho)
-4. Gmail API se send
-
-### Output:
-- Real-time progress browser mein
-- Complete log: `sent_emails.json`
-- Success/failure tracking
-
----
-
-## 📧 Email Customization
-
-### With Job Position:
-```
-Subject: Application for Software Engineer at ABC Corp
-
-Hi Rahul,
-
-I am interested in the Software Engineer position at ABC Corp...
-[AI-generated personalized content based on role]
-
-Resume: https://your-resume.com
-```
-
-### Without Job Position:
-```
-Subject: Application for Opportunities at ABC Corp
-
-Hi Rahul,
-
-I am interested in exploring opportunities at ABC Corp...
-[AI-generated general professional content]
-
-Resume: https://your-resume.com
-```
-
----
-
-## ⚠️ Important Notes
-
-### Rate Limiting:
-- Default: 5 seconds between emails
-- Recommended: 5-10 seconds
-- Daily limit: ~100-300 emails (personal Gmail)
-
-### Security:
-- Scope sirf `gmail.send` hai — ye app tumhara **inbox padh hi nahi sakta**
-- `.env` aur `cred.json` `.gitignore` mein hain
-- Token `~/.email_automation/token.json` mein, project folder se bahar
-
-### Gemini Fallback:
-- If API fails, uses professional template
-- Same data (name, company, position, resume)
-- Emails continue sending
-- No manual intervention needed
-
-### First Time Gmail Authentication:
-- `python authorize.py` chalao
-- Browser khulega, login karo, "Allow" click karo
-- Token save ho jaayega — next time automatic
-- Teeno modes (CLI, web, MCP) yahi ek login share karte hain
-
----
-
-## 🧪 Testing
-
-**Test single email to yourself:**
+**To run the Local Standalone Server (stdio transport):**
+Put your Google Cloud Desktop `credentials.json` in the root folder, then run:
 ```bash
-python test_email.py
-```
-
-Ya web interface mein **"Send Test Email"** button use karo.
-
----
-
-## 📁 File Structure
-
-```
-.
-├── .env                    # Your configuration (never commit)
-├── core/                   # Shared by all three entry points
-│   ├── config.py           #   Settings + file locations
-│   ├── gmail_auth.py       #   OAuth (send-only scope)
-│   ├── email_sender.py     #   Gmail send
-│   ├── sheets_reader.py    #   Public sheet reader
-│   ├── gemini_content.py   #   AI content (standalone mode only)
-│   └── sent_log.py         #   Send history + dedupe
-├── app.py                  # Standalone: Flask web server
-├── main.py                 # Standalone: CLI
-├── test_email.py           # Send yourself one test email
-├── authorize.py            # One-time Gmail login
-├── mcp_server/
-│   └── server.py           # MCP server for Claude
-├── requirements.txt
-└── templates/
-    └── index.html          # Web interface
-```
-
-Ye files project folder mein **nahi** banti — `~/.email_automation/` mein banti hain,
-taaki teeno modes ek hi login share karein aur kuch secret galti se commit na ho:
-
-```
-~/.email_automation/
-├── token.json          # Gmail login
-└── sent_emails.json    # Har bheji hui email ka record
+python main.py
 ```
 
 ---
 
-## 🆘 Troubleshooting
+## Using with MCP Clients
 
-**"No Google OAuth credentials found"**
-→ `.env` mein `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` bharo, ya `cred.json` rakho
+Once deployed (or running via ngrok), add Setu to your AI assistant:
 
-**"Gmail is not authorized"**
-→ `python authorize.py` chalao
+**Claude (claude.ai):**
+Go to Settings -> Connectors -> Add Custom Connector -> Use the URL `https://your-domain.com/mcp`
 
-**"Google did not recognize the OAuth client"**
-→ Client ID/secret galat hai ya Cloud Console se delete ho gaya
-→ Theek karke `python authorize.py` dobara chalao
-
-**"GEMINI_API_KEY not found"**
-→ Add to `.env` file from https://aistudio.google.com/app/apikey
-→ (MCP mode mein iski zaroorat nahi — Claude khud likhta hai)
-
-**"The sheet is not public"**
-→ Sheet → Share → "Anyone with the link" → Viewer
-
-**"Gemini API fails"**
-→ System automatically uses fallback template
-→ Emails will still send with professional content
-
-**"Port 5000 already in use"**
-→ Change port in `app.py`: `app.run(port=5001)`
-
----
-
-## 💡 Pro Tips
-
-1. **Test First:** Always send test email before bulk sending
-2. **Preview:** Check email preview for each type of recipient
-3. **Sheet URL:** Copy URL directly from browser address bar
-4. **Job Position:** Agar position specify karo to email zyada targeted hoga
-5. **Custom Resume:** Different positions ke liye different resume links use kar sakte ho
-6. **Rate Limit:** Agar zyada emails bhejne hain to delay 8-10 seconds rakho
-
----
-
-## 📈 Best Practices
-
-- Start with 5-10 test emails
-- Check spam folder initially
-- Use professional email content
-- Don't send more than 100 emails/day
-- Keep delay between 5-10 seconds
-- Monitor `sent_emails.json` for tracking
-
----
-
-## 🔐 Security
-
-- **Send-only scope.** Ye app `gmail.send` maangta hai aur bas. Inbox padhna
-  technically possible hi nahi hai — token leak bhi ho jaye to koi tumhari
-  mails nahi dekh sakta.
-- Har user apni khud ki Google client ID/secret use karta hai — koi shared credential nahi
-- `.env` aur `cred.json` `.gitignore` mein hain
-- Token project folder se bahar (`~/.email_automation/token.json`), file permissions `600`
-- Code mein koi credential hardcoded nahi
-
----
-
-## 📞 Support
-
-For issues or questions:
-1. Check `.env` configuration
-2. Verify `cred.json` exists
-3. Test with single email first
-4. Check `sent_emails.json` for logs
-5. Review browser console for errors
-
----
-
-## 🎉 Ready to Use!
-
+**Claude Code CLI:**
 ```bash
-python app.py
+claude mcp add --transport http setu https://your-domain.com/mcp
 ```
 
-Open: **http://localhost:5000**
+**Cursor IDE:**
+Add this to your `mcp.json`:
+```json
+{
+  "mcpServers": {
+    "setu": {
+      "command": "python",
+      "args": ["main.py"]
+    }
+  }
+}
+```
 
-Happy emailing! 🚀
+---
+
+## Contributing
+Contributions are welcome! Feel free to open issues or submit pull requests.
+
+## License
+MIT License
