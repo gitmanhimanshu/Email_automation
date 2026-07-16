@@ -28,7 +28,15 @@ python -m remote.test_local    # terminal 2
 
 | Path | What lives there |
 |---|---|
-| `remote/` | The hosted MCP server — tools, storage, guardrails, admin API. Most changes land here. |
+| `remote/` | The hosted MCP server. Most changes land here. |
+| `remote/app.py` | The FastMCP instance + Google OAuth — owns `mcp`, imports nothing else from the package |
+| `remote/tools.py` | The MCP tools the assistant calls |
+| `remote/rules.py` | The send gates (role, link, plan) — the strings here are product copy for the model |
+| `remote/identity.py` | Access token → Google identity, with a short cache |
+| `remote/web.py` | Public HTTP routes: `/health`, `/api/stats`, `/api/visit` |
+| `remote/admin.py` | Admin panel API (`/admin/api/*`, HTTP Basic) |
+| `remote/storage.py` | Users, sends, visitors — SQLite or Postgres from the same SQL |
+| `remote/server.py` | Entry point only: registers the modules and runs |
 | `mcp_server/` | Local stdio MCP server (bring-your-own credentials) |
 | `core/` | Shared Gmail/config code used by the desktop modes |
 | `app.py`, `main.py` | Standalone desktop modes (Flask UI / CLI, Gemini-written content) |
