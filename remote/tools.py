@@ -336,3 +336,49 @@ async def get_sent_history(limit: int = 20) -> dict:
         "daily_limit": config.DAILY_SEND_LIMIT,
         "entries": storage.recent_sends(identity["sub"], limit),
     }
+
+
+@mcp.tool
+async def get_my_stats() -> dict:
+    """The user's numbers at a glance — call when they ask how it's going.
+
+    "How many emails have I sent?", "show my stats", "how many companies did
+    I reach?", "did anything fail?" — this answers all of those in one call:
+    lifetime and 24h send counts, companies reached, failures, remaining
+    quota, plan, and the last few sends. Summarise it conversationally;
+    don't dump the raw dict.
+    """
+    _, identity = await current_user()
+    sub = identity["sub"]
+    user = storage.get_user(sub) or {}
+
+    history = storage.recent_sends(sub, limit=200)
+    lifetime = storage.total_sent(sub)
+    used_today = storage.sent_today(sub)
+    plan = user.get("plan", "free")
+
+    return {
+        "email": identity["email"],
+        "name": identity.get("name"),
+        "plan": plan,
+        "total_sent": lifetime,
+        "total_failed": sum(1 for r in history if not r["success"]),
+        "companies_reached": len(
+            {r["company"] for r in history if r["company"] and r["success"]}
+        ),
+        "sent_last_24h": used_today,
+        "daily_limit": config.DAILY_SEND_LIMIT,
+        "remaining_today": max(0, config.DAILY_SEND_LIMIT - used_today),
+        "free_remaining": max(0, config.FREE_EMAIL_LIMIT - lifetime) if plan == "free" else None,
+        "subscription_ends_at": user.get("subscription_ends_at"),
+        "recent": [
+            {
+                "to_email": r["to_email"],
+                "company": r["company"],
+                "subject": r["subject"],
+                "success": bool(r["success"]),
+                "sent_at": r["sent_at"],
+            }
+            for r in history[:5]
+        ],
+    }

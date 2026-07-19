@@ -40,6 +40,7 @@ Setu serves three roles, and the role changes what a good email looks like:
 | `send_application` | Sends one email. Irreversible; shown to the user first. `include_link=false` skips the link. |
 | `send_applications` | Batch send (max 25), paced. Same rules per email. |
 | `get_sent_history` | Everything already sent — what makes duplicate prevention possible. |
+| `get_my_stats` | The user's numbers at a glance — totals, companies reached, failures, quota, plan — for "show my stats". |
 
 ## Architecture
 
