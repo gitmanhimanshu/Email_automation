@@ -6,8 +6,35 @@ explicit Authorization header and never cookies, so origin adds no security.
 """
 from starlette.responses import JSONResponse
 
-from . import config, geo, gmail, storage
+from . import config, geo, gmail, storage, verify
 from .app import mcp
+
+
+async def _bearer_identity(request, cors):
+    """(identity, None) for a valid Google access token, else (None, response).
+
+    Same auth the MCP flow uses: the token itself names the user, resolved
+    server-side, so a caller can only ever touch their own row.
+    """
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return None, JSONResponse(
+            {"error": "missing bearer token"}, status_code=401, headers=cors
+        )
+
+    access_token = header.split(" ", 1)[1].strip()
+    try:
+        identity = await gmail.fetch_identity(access_token)
+    except Exception:
+        return None, JSONResponse(
+            {"error": "invalid or expired token"}, status_code=401, headers=cors
+        )
+
+    if not identity.get("sub"):
+        return None, JSONResponse(
+            {"error": "could not identify account"}, status_code=401, headers=cors
+        )
+    return identity, None
 
 
 @mcp.custom_route("/health", methods=["GET"])
@@ -80,6 +107,45 @@ async def api_visit(request):
     return JSONResponse({"ok": True}, headers=cors)
 
 
+@mcp.custom_route("/api/link", methods=["POST", "OPTIONS"])
+async def api_link(request):
+    """Save or change the user's resume/portfolio link from the dashboard.
+
+    Same validation as the save_link MCP tool: the URL is fetched first, and a
+    link the recipient couldn't open (private Drive file, login wall, 404) is
+    rejected here instead of silently failing in someone's inbox.
+    """
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    }
+
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400, headers=cors)
+
+    url = (payload.get("link") or "").strip()
+    if not url:
+        return JSONResponse({"error": "link is required"}, status_code=400, headers=cors)
+
+    ok, detail = await verify.check_resume_link(url)
+    if not ok:
+        return JSONResponse({"success": False, "error": detail}, status_code=422, headers=cors)
+
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+    storage.set_link(sub, url)
+    return JSONResponse({"success": True, "link": url, "detail": detail}, headers=cors)
+
+
 @mcp.custom_route("/api/stats", methods=["GET", "OPTIONS"])
 async def api_stats(request):
     """Read-only stats for the web dashboard.
@@ -95,18 +161,9 @@ async def api_stats(request):
     if request.method == "OPTIONS":
         return JSONResponse({}, headers=cors)
 
-    header = request.headers.get("authorization", "")
-    if not header.lower().startswith("bearer "):
-        return JSONResponse({"error": "missing bearer token"}, status_code=401, headers=cors)
-
-    access_token = header.split(" ", 1)[1].strip()
-    try:
-        identity = await gmail.fetch_identity(access_token)
-    except Exception:
-        return JSONResponse({"error": "invalid or expired token"}, status_code=401, headers=cors)
-
-    if not identity.get("sub"):
-        return JSONResponse({"error": "could not identify account"}, status_code=401, headers=cors)
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
 
     sub = identity["sub"]
     storage.upsert_user(sub, identity["email"], identity.get("name"))

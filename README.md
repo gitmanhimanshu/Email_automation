@@ -58,6 +58,7 @@ It also serves a small HTTP API for the web frontend:
 |---|---|
 | `GET /health` | Liveness + database reachability (used by Render health checks) |
 | `GET /api/stats` | Per-user stats for the dashboard (Bearer = Google access token) |
+| `POST /api/link` | Save/change the user's resume or portfolio link from the dashboard (same Bearer auth, same public-openability validation as the `save_link` tool) |
 | `POST /api/visit` | Anonymous page-visit beacon for the analytics panel |
 | `GET/POST /admin/api/*` | Admin panel: totals, users, visitors, plan changes (HTTP Basic via `ADMIN_EMAIL`/`ADMIN_PASSWORD`) |
 
