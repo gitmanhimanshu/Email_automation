@@ -1,21 +1,21 @@
-"""Public HTTP routes — the parts of the server a plain browser talks to.
+"""Public HTTP routes - the parts of the server a plain browser talks to.
 
 Not MCP: the frontend dashboard and uptime monitors cannot speak the protocol.
-CORS is open (`*`) on purpose — every authenticated route here takes an
+CORS is open (`*`) on purpose - every authenticated route here takes an
 explicit Authorization header and never cookies, so origin adds no security.
 """
-from starlette.responses import JSONResponse
+import re
+
+from starlette.responses import JSONResponse, RedirectResponse
 
 from . import config, geo, gmail, storage, verify
 from .app import mcp
 
+_LINK_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
 
 async def _bearer_identity(request, cors):
-    """(identity, None) for a valid Google access token, else (None, response).
-
-    Same auth the MCP flow uses: the token itself names the user, resolved
-    server-side, so a caller can only ever touch their own row.
-    """
+    """(identity, None) for a valid Google access token, else (None, response)."""
     header = request.headers.get("authorization", "")
     if not header.lower().startswith("bearer "):
         return None, JSONResponse(
@@ -37,10 +37,21 @@ async def _bearer_identity(request, cors):
     return identity, None
 
 
+def _clean_link_name(name):
+    cleaned = (name or "").strip().lower()
+    return cleaned if _LINK_NAME_RE.match(cleaned) else None
+
+
+def _links_payload(sub, user):
+    return {
+        "default_link_name": user.get("default_link_name"),
+        "link": user.get("link"),
+        "links": storage.list_links(sub),
+    }
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request):
-    """Liveness + readiness, no auth. Render/Railway health checks and uptime
-    monitors hit this; it answers 200 only when the database is reachable."""
     try:
         storage.get_user("health-check-probe")
         db_ok = True
@@ -57,12 +68,15 @@ async def health(request):
     )
 
 
-def _client_ip(request):
-    """The visitor's IP, honouring the proxy chain Render/Railway put in front.
+@mcp.custom_route("/r/{track_id}", methods=["GET"])
+async def tracked_link(request):
+    url = storage.record_open(request.path_params.get("track_id"))
+    if not url:
+        return JSONResponse({"error": "unknown tracking id"}, status_code=404)
+    return RedirectResponse(url=url, status_code=307)
 
-    X-Forwarded-For is 'client, proxy1, proxy2'; the first hop is the real
-    client. Falls back to the socket address for a direct connection.
-    """
+
+def _client_ip(request):
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -74,18 +88,13 @@ def _client_ip(request):
 
 @mcp.custom_route("/api/visit", methods=["POST", "OPTIONS"])
 async def api_visit(request):
-    """Log a page view. Public, unauthenticated, and never fails the visitor.
-
-    Dedupes by IP: a returning visitor bumps a counter rather than adding a row,
-    and only a brand-new IP triggers a geolocation lookup.
-    """
     cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type"}
     if request.method == "OPTIONS":
         return JSONResponse({}, headers=cors)
 
     ip = _client_ip(request)
     if not ip:
-        return JSONResponse({"ok": True}, headers=cors)  # nothing to record; don't complain
+        return JSONResponse({"ok": True}, headers=cors)
 
     try:
         body = await request.json()
@@ -101,23 +110,76 @@ async def api_visit(request):
             if located:
                 storage.set_visitor_geo(ip, **located)
     except Exception:
-        # Analytics must never take the site down. Swallow and move on.
         pass
 
     return JSONResponse({"ok": True}, headers=cors)
 
 
-@mcp.custom_route("/api/link", methods=["POST", "OPTIONS"])
+@mcp.custom_route("/api/link", methods=["GET", "POST", "DELETE", "OPTIONS"])
 async def api_link(request):
-    """Save or change the user's resume/portfolio link from the dashboard.
-
-    Same validation as the save_link MCP tool: the URL is fetched first, and a
-    link the recipient couldn't open (private Drive file, login wall, 404) is
-    rejected here instead of silently failing in someone's inbox.
-    """
+    """List, save, default, or delete saved links from the dashboard."""
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    }
+
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+
+    if request.method == "GET":
+        user = storage.get_user(sub) or {}
+        return JSONResponse(_links_payload(sub, user), headers=cors)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    if request.method == "DELETE":
+        name = _clean_link_name(payload.get("name"))
+        if not name:
+            return JSONResponse({"error": "name is required"}, status_code=400, headers=cors)
+        if not storage.get_named_link(sub, name):
+            return JSONResponse({"error": f"no saved link named {name!r}"}, status_code=404, headers=cors)
+        storage.delete_named_link(sub, name)
+        user = storage.get_user(sub) or {}
+        return JSONResponse({"success": True, **_links_payload(sub, user)}, headers=cors)
+
+    url = (payload.get("link") or "").strip()
+    name = _clean_link_name(payload.get("name") or "default")
+    make_default = bool(payload.get("make_default")) or name == "default"
+
+    if not url:
+        return JSONResponse({"error": "link is required"}, status_code=400, headers=cors)
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400, headers=cors)
+
+    ok, detail = await verify.check_resume_link(url)
+    if not ok:
+        return JSONResponse({"success": False, "error": detail}, status_code=422, headers=cors)
+
+    storage.save_named_link(sub, name, url, make_default=make_default)
+    user = storage.get_user(sub) or {}
+    return JSONResponse(
+        {"success": True, "detail": detail, **_links_payload(sub, user)},
+        headers=cors,
+    )
+
+
+@mcp.custom_route("/api/link/default", methods=["POST", "OPTIONS"])
+async def api_link_default(request):
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
     }
 
     if request.method == "OPTIONS":
@@ -130,29 +192,21 @@ async def api_link(request):
     try:
         payload = await request.json()
     except Exception:
-        return JSONResponse({"error": "invalid JSON body"}, status_code=400, headers=cors)
+        payload = {}
 
-    url = (payload.get("link") or "").strip()
-    if not url:
-        return JSONResponse({"error": "link is required"}, status_code=400, headers=cors)
+    name = _clean_link_name(payload.get("name"))
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400, headers=cors)
 
-    ok, detail = await verify.check_resume_link(url)
-    if not ok:
-        return JSONResponse({"success": False, "error": detail}, status_code=422, headers=cors)
+    if not storage.set_default_link(identity["sub"], name):
+        return JSONResponse({"error": f"no saved link named {name!r}"}, status_code=404, headers=cors)
 
-    sub = identity["sub"]
-    storage.upsert_user(sub, identity["email"], identity.get("name"))
-    storage.set_link(sub, url)
-    return JSONResponse({"success": True, "link": url, "detail": detail}, headers=cors)
+    user = storage.get_user(identity["sub"]) or {}
+    return JSONResponse({"success": True, **_links_payload(identity["sub"], user)}, headers=cors)
 
 
 @mcp.custom_route("/api/stats", methods=["GET", "OPTIONS"])
 async def api_stats(request):
-    """Read-only stats for the web dashboard.
-
-    Auth is the same Google access token the MCP flow issues, resolved to an
-    identity server-side, so a caller can only ever see their own rows.
-    """
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Authorization",
@@ -172,6 +226,7 @@ async def api_stats(request):
     role = user.get("role") if user.get("role") in config.ROLES else None
     plan = user.get("plan", "free")
     lifetime = storage.total_sent(sub)
+    stats = storage.lifetime_stats(sub)
 
     return JSONResponse(
         {
@@ -180,6 +235,8 @@ async def api_stats(request):
             "role": role,
             "role_label": config.ROLES.get(role, {}).get("label"),
             "link": user.get("link"),
+            "default_link_name": user.get("default_link_name"),
+            "links": storage.list_links(sub),
             "link_label": config.ROLES.get(role, {}).get("link_label"),
             "plan": plan,
             "subscribed_at": user.get("subscribed_at"),
@@ -187,10 +244,13 @@ async def api_stats(request):
             "free_email_limit": config.FREE_EMAIL_LIMIT,
             "free_remaining": max(0, config.FREE_EMAIL_LIMIT - lifetime) if plan == "free" else None,
             "total_sent": lifetime,
-            "total_failed": sum(1 for r in history if not r["success"]),
+            "total_failed": stats["total_failed"],
+            "total_opens": stats["total_opens"],
+            "opened_sends": stats["opened_sends"],
             "sent_last_24h": storage.sent_today(sub),
             "daily_limit": config.DAILY_SEND_LIMIT,
-            "companies": len({r["company"] for r in history if r["company"] and r["success"]}),
+            "companies": stats["companies_reached"],
+            "company_opens": storage.company_open_stats(sub),
             "recent": [
                 {
                     "to_email": r["to_email"],
@@ -199,6 +259,10 @@ async def api_stats(request):
                     "success": bool(r["success"]),
                     "error": r["error"],
                     "sent_at": r["sent_at"],
+                    "open_count": r.get("open_count") or 0,
+                    "first_opened_at": r.get("first_opened_at"),
+                    "last_opened_at": r.get("last_opened_at"),
+                    "link_name": r.get("link_name"),
                 }
                 for r in history[:25]
             ],

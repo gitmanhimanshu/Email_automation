@@ -273,6 +273,39 @@ def total_sent(google_sub):
     return row["n"] if row else 0
 
 
+def lifetime_stats(google_sub):
+    """Lifetime aggregates across all sends for the user (dashboard totals)."""
+    with _db() as conn:
+        row = _one(
+            conn,
+            """
+            SELECT
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS total_failed,
+                SUM(CASE WHEN success = 1 THEN open_count ELSE 0 END) AS total_opens,
+                SUM(CASE WHEN success = 1 AND open_count > 0 THEN 1 ELSE 0 END) AS opened_sends
+            FROM sends
+            WHERE google_sub = ?
+            """,
+            (google_sub,)
+        )
+        companies = _one(
+            conn,
+            """
+            SELECT COUNT(DISTINCT company) AS n
+            FROM sends
+            WHERE google_sub = ? AND success = 1 AND company IS NOT NULL AND TRIM(company) != ''
+            """,
+            (google_sub,)
+        )
+    return {
+        "total_failed": (row["total_failed"] or 0) if row else 0,
+        "total_opens": (row["total_opens"] or 0) if row else 0,
+        "opened_sends": (row["opened_sends"] or 0) if row else 0,
+        "companies_reached": companies["n"] if companies else 0,
+    }
+
+
+
 def record_sends(google_sub, results):
     rows = [
         (
