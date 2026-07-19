@@ -665,6 +665,8 @@ def admin_list_visitors(page=1, per_page=100):
     offset = (max(1, page) - 1) * per_page
     with _db() as conn:
         total = _one(conn, "SELECT COUNT(*) AS n FROM visitors")
+        unique = _one(conn, "SELECT COUNT(DISTINCT ip) AS n FROM visitors")
+        hits = _one(conn, "SELECT COALESCE(SUM(visit_count), 0) AS n FROM visitors")
         rows = _rows(
             conn,
             "SELECT * FROM visitors ORDER BY last_seen DESC LIMIT ? OFFSET ?",
@@ -672,6 +674,9 @@ def admin_list_visitors(page=1, per_page=100):
         )
     return {
         "visitors": rows,
+        "total": total["n"] if total else 0,
+        "unique_ips": unique["n"] if unique else 0,
+        "total_hits": hits["n"] if hits else 0,
         "page": page,
-        "total_pages": ((total["n"] if total else 0) + per_page - 1) // per_page,
+        "pages": ((total["n"] if total else 0) + per_page - 1) // per_page,
     }
