@@ -8,7 +8,7 @@ import asyncio
 import re
 import secrets
 
-from . import config, gmail, storage, verify
+from . import config, gmail, signals, storage, verify
 from .app import mcp
 from .identity import current_user
 from .models import Application, Candidate
@@ -555,4 +555,68 @@ async def get_my_stats() -> dict:
             }
             for r in history[:5]
         ],
+    }
+
+
+@mcp.tool
+async def get_link_activity(limit: int = 50) -> dict:
+    """Who has been opening the links you sent, and what to do about it.
+
+    Every link Setu sends is tracked, so this shows which recipients actually
+    opened yours, how many times, and how recently — ordered so the ones worth
+    acting on come first.
+
+    Read the signals as:
+      hot     — opened several times. Someone came back to it, or forwarded it.
+                The best moment to follow up.
+      warm    — opened in the last couple of days.
+      opened  — opened, but a while ago.
+      cold    — sent days ago and never opened. Usually a wrong address or a
+                spam folder, not disinterest.
+      waiting — sent too recently to read anything into.
+
+    Tell the user what the numbers are and suggest the follow-up, but do not
+    claim the recipient "read" or "definitely saw" anything: an open means the
+    link was fetched, which is evidence, not proof. Someone can also read the
+    email without ever clicking the link.
+    """
+    _, identity = await current_user()
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+
+    activity = signals.summarize(storage.link_activity(sub, limit))
+
+    return {
+        "counts": activity["counts"],
+        "needs_attention": [
+            {
+                "company": i.get("company"),
+                "to_email": i.get("to_email"),
+                "signal": i["signal"],
+                "headline": i["headline"],
+                "action": i["action"],
+                "open_count": i.get("open_count") or 0,
+                "last_opened_at": i.get("last_opened_at"),
+                "sent_at": i.get("sent_at"),
+            }
+            for i in activity["needs_attention"]
+        ],
+        "all": [
+            {
+                "company": i.get("company"),
+                "to_email": i.get("to_email"),
+                "subject": i.get("subject"),
+                "signal": i["signal"],
+                "headline": i["headline"],
+                "action": i["action"],
+                "open_count": i.get("open_count") or 0,
+                "sent_at": i.get("sent_at"),
+                "last_opened_at": i.get("last_opened_at"),
+            }
+            for i in activity["items"]
+        ],
+        "note": (
+            "An open means the tracked link was fetched. It is a signal, not "
+            "proof that the recipient read the email."
+        ),
     }

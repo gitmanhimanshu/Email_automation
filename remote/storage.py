@@ -555,6 +555,29 @@ def recent_sends(google_sub, limit=20):
             (google_sub, limit),
         )
 
+def link_activity(google_sub, limit=100):
+    """Every tracked send with its open data, including the never-opened ones.
+
+    company_open_stats only returns rows that were opened, which hides the most
+    actionable case of all: sent days ago, never opened.
+    """
+    with _db() as conn:
+        return _rows(
+            conn,
+            """
+            SELECT id, to_email, company, subject, sent_at,
+                   open_count, first_opened_at, last_opened_at
+            FROM sends
+            WHERE google_sub = ?
+              AND success = 1
+              AND track_id IS NOT NULL
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (google_sub, limit),
+        )
+
+
 def company_open_stats(google_sub, limit=100):
     """Company-level open counts across the user's successful sends."""
     with _db() as conn:
