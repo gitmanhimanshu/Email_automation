@@ -398,19 +398,29 @@ def set_default_link(google_sub, name):
 
 # --- Link-open tracking ---
 
-def record_open(track_id):
-    """Count an open of /r/{track_id}; returns the real URL, or None."""
+def lookup_tracked(track_id):
+    """(url, sent_at) for a tracking id, or (None, None). Counts nothing.
+
+    Separate from count_open so the redirect can always fire while the caller
+    decides whether the hit was a human worth counting.
+    """
     if not track_id:
-        return None
+        return None, None
     with _db() as conn:
         row = _one(
             conn,
-            "SELECT tracked_link FROM sends WHERE track_id = ?",
+            "SELECT tracked_link, sent_at FROM sends WHERE track_id = ?",
             (track_id,),
         )
-        if not row or not row.get("tracked_link"):
-            return None
-        now = _now()
+    if not row or not row.get("tracked_link"):
+        return None, None
+    return row["tracked_link"], row.get("sent_at")
+
+
+def count_open(track_id):
+    """Record one genuine open of a tracked link."""
+    now = _now()
+    with _db() as conn:
         conn.execute(
             _sql(
                 """
@@ -423,7 +433,23 @@ def record_open(track_id):
             ),
             (now, now, track_id),
         )
-    return row["tracked_link"]
+
+
+def visitor_exists(ip):
+    """Whether this IP is already in the table — i.e. logging it grows nothing."""
+    with _db() as conn:
+        return _one(conn, "SELECT 1 AS x FROM visitors WHERE ip = ?", (ip,)) is not None
+
+
+def visitor_needs_geo(ip):
+    """True when we have no location for this IP yet.
+
+    The geolocation call is keyed on this rather than on 'first visit today',
+    so a returning visitor never burns another lookup against ip-api's quota.
+    """
+    with _db() as conn:
+        row = _one(conn, "SELECT country FROM visitors WHERE ip = ?", (ip,))
+    return bool(row) and not row.get("country")
 
 def set_role(google_sub, role):
     with _db() as conn:

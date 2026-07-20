@@ -4,6 +4,8 @@ This module owns the `mcp` instance and nothing else. Tools live in tools.py,
 public HTTP routes in web.py, the admin API in admin.py — they all import
 `mcp` from here and register themselves, so the dependency graph stays a tree.
 """
+import time
+
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
 
@@ -11,7 +13,48 @@ from . import config, storage
 
 storage.init()
 
-auth = GoogleProvider(
+# Re-recording the same user on every request would be a database write per
+# MCP call; once per user per this many seconds is enough to keep the roster
+# current without that cost.
+_SEEN_TTL = 900
+_seen = {}
+
+
+class _RecordingGoogleProvider(GoogleProvider):
+    """A GoogleProvider that writes the user down as soon as they authenticate.
+
+    Signing in with Google does not, by itself, touch the database — user rows
+    were only created when a tool ran or the dashboard was opened. So anyone who
+    added the connector and granted access, but whose assistant had not yet
+    called a Setu tool, was fully registered and completely invisible to the
+    admin panel.
+
+    verify_token runs on every authenticated MCP request, and MCP clients list
+    tools immediately after connecting, so hooking it here catches a user at the
+    moment they finish signing in.
+    """
+
+    async def verify_token(self, token):
+        access = await super().verify_token(token)
+        if access is None:
+            return None
+
+        claims = getattr(access, "claims", None) or {}
+        sub, email = claims.get("sub"), claims.get("email")
+        if sub and email:
+            now = time.monotonic()
+            if _seen.get(sub, 0) < now:
+                _seen[sub] = now + _SEEN_TTL
+                try:
+                    storage.upsert_user(sub, email, claims.get("name"))
+                except Exception:
+                    # Never fail authentication because bookkeeping failed.
+                    _seen.pop(sub, None)
+
+        return access
+
+
+auth = _RecordingGoogleProvider(
     client_id=config.GOOGLE_CLIENT_ID,
     client_secret=config.GOOGLE_CLIENT_SECRET,
     base_url=config.BASE_URL,
