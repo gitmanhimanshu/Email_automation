@@ -96,6 +96,7 @@ async def get_my_profile() -> dict:
         "daily_limit": config.DAILY_SEND_LIMIT,
         "remaining_today": max(0, config.DAILY_SEND_LIMIT - used_today),
         "max_per_batch": config.MAX_PER_BATCH,
+        "dashboard_url": config.DASHBOARD_URL,
         "setup_needed": link_problem(user) or plan_problem(user, sub),
     }
 
@@ -142,6 +143,7 @@ async def save_link(
     link: str,
     name: str | None = None,
     make_default: bool = False,
+    description: str | None = None,
 ) -> dict:
     """Save a link the server can attach to emails.
 
@@ -149,6 +151,20 @@ async def save_link(
     portfolio. Ask the user for the exact URL; never invent, guess, or
     complete it. If `name` is given, it saves an additional named link the
     assistant can refer to later with `link_name` while sending.
+
+    When the user keeps more than one resume, always set `description` to what
+    that version emphasises - "backend work: Postgres, Go, queues" or "frontend:
+    React, design systems". That description is what lets you pick the right one
+    for a job description later, instead of guessing from a name like "resume2".
+    Ask the user what a resume is for rather than inventing a description.
+
+    IF THE USER HAS A FILE RATHER THAN A URL - they attached a PDF to this chat,
+    or their resume only exists on their computer - you cannot save it here. You
+    only ever receive a PDF's extracted text, never the file itself, so anything
+    you reconstructed from it would be a different document with broken
+    formatting going out under their name. Never attempt that. Send them to the
+    dashboard instead, where they can sign in and upload the real file:
+    it is listed as `dashboard_url` in get_my_profile.
     """
     url = link.strip()
     ok, detail = await verify.check_resume_link(url)
@@ -165,7 +181,9 @@ async def save_link(
         cleaned, error = _clean_or_error(name)
         if error:
             return {"success": False, "error": error}
-        storage.save_named_link(sub, cleaned, url, make_default=make_default)
+        storage.save_named_link(
+            sub, cleaned, url, make_default=make_default, description=description
+        )
         return {
             "success": True,
             "name": cleaned,
@@ -192,7 +210,14 @@ async def save_link(
 
 @mcp.tool
 async def list_saved_links() -> dict:
-    """List the saved links for this user, with which one is the default."""
+    """List the saved links for this user, with which one is the default.
+
+    Call this before sending when the user has more than one resume. Read each
+    link's `description` against the job description and pass the best match as
+    `link_name` to send_application. If two look equally close, or none clearly
+    fits, ask the user which to use rather than picking silently — sending the
+    wrong resume is worse than asking one short question.
+    """
     _, identity = await current_user()
     storage.upsert_user(identity["sub"], identity["email"], identity.get("name"))
     sub = identity["sub"]

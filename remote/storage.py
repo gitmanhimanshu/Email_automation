@@ -63,6 +63,17 @@ CREATE TABLE IF NOT EXISTS links (
     updated_at  TEXT NOT NULL,
     PRIMARY KEY (google_sub, name)
 );
+
+CREATE TABLE IF NOT EXISTS files (
+    id           TEXT PRIMARY KEY,
+    google_sub   TEXT NOT NULL,
+    filename     TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    data         BLOB NOT NULL,
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_files_user ON files (google_sub, created_at);
 """
 
 SCHEMA_POSTGRES = """
@@ -115,6 +126,21 @@ CREATE TABLE IF NOT EXISTS links (
     updated_at  TEXT NOT NULL,
     PRIMARY KEY (google_sub, name)
 );
+
+-- Files live in the database for now, which is fine at this size: a resume is
+-- a couple of hundred KB and Neon's free tier holds thousands. When that stops
+-- being true, only save_file/read_file below need to change -- everything else
+-- addresses a file by id through them.
+CREATE TABLE IF NOT EXISTS files (
+    id           TEXT PRIMARY KEY,
+    google_sub   TEXT NOT NULL,
+    filename     TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    data         BYTEA NOT NULL,
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_files_user ON files (google_sub, created_at);
 """
 
 
@@ -181,6 +207,10 @@ MIGRATIONS = [
     ("sends", "open_count", "INTEGER NOT NULL DEFAULT 0"),
     ("sends", "first_opened_at", "TEXT"),
     ("sends", "last_opened_at", "TEXT"),
+    # What a saved link actually is ("backend work - Postgres, Go, queues"), so
+    # the assistant can match one to a job description instead of guessing from
+    # a bare name like "resume2".
+    ("links", "description", "TEXT"),
 ]
 
 
@@ -284,20 +314,23 @@ def get_user(google_sub):
 
 # --- Saved Links ---
 
-def save_named_link(google_sub, name, url, make_default=False):
+def save_named_link(google_sub, name, url, make_default=False, description=None):
     with _db() as conn:
         now = _now()
         conn.execute(
             _sql(
                 """
-                INSERT INTO links (google_sub, name, url, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO links (google_sub, name, url, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (google_sub, name) DO UPDATE SET
                     url = EXCLUDED.url,
+                    -- keep an existing description when the caller omits one,
+                    -- so re-uploading a file doesn't wipe what it's for
+                    description = COALESCE(EXCLUDED.description, links.description),
                     updated_at = EXCLUDED.updated_at
                 """
             ),
-            (google_sub, name, url, now, now),
+            (google_sub, name, url, description, now, now),
         )
         if make_default:
             conn.execute(
@@ -321,10 +354,18 @@ def list_links(google_sub):
         default = user.get("default_link_name")
         rows = _rows(
             conn,
-            "SELECT name, url FROM links WHERE google_sub = ? ORDER BY updated_at DESC",
+            "SELECT name, url, description FROM links WHERE google_sub = ? ORDER BY updated_at DESC",
             (google_sub,),
         )
-        return [{"name": r["name"], "url": r["url"], "is_default": r["name"] == default} for r in rows]
+        return [
+            {
+                "name": r["name"],
+                "url": r["url"],
+                "description": r.get("description"),
+                "is_default": r["name"] == default,
+            }
+            for r in rows
+        ]
 
 def delete_named_link(google_sub, name):
     """Remove a named link and repoint the default if needed."""
@@ -631,6 +672,93 @@ def already_contacted(google_sub, emails):
             (google_sub, *lowered),
         )
     return {r["e"] for r in rows}
+
+
+# --- Files ---
+#
+# NOTE: file bytes are stored in the database. That is a deliberate stopgap, not
+# the end state. It is fine at this size -- a resume is a few hundred KB and the
+# per-user ceilings in config keep it bounded -- and it avoids paying for and
+# operating a second service before there are users to justify one.
+#
+# ON SCALE, MOVE TO OBJECT STORAGE (Cloudflare R2, S3, Supabase Storage).
+# Database rows are a bad home for blobs: they bloat backups, slow restores, and
+# Postgres bills for space that object storage gives away almost free.
+#
+# The migration is deliberately cheap: only save_file and read_file touch the
+# bytes. Swap those two to put/get against a bucket -- keeping the same file id
+# as the object key -- and every caller, route, and email link keeps working
+# untouched. Existing rows can be backfilled by streaming them into the bucket
+# and then dropping the data column.
+
+def save_file(file_id, google_sub, filename, content_type, data):
+    with _db() as conn:
+        conn.execute(
+            _sql(
+                """
+                INSERT INTO files (id, google_sub, filename, content_type, size, data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """
+            ),
+            (file_id, google_sub, filename, content_type, len(data), data, _now()),
+        )
+
+
+def read_file(file_id):
+    """(data, filename, content_type) for serving, or None.
+
+    No owner check: the id is the capability, exactly like an unlisted link —
+    which is the point, since the recipient opening it is not signed in.
+    """
+    with _db() as conn:
+        row = _one(
+            conn,
+            "SELECT data, filename, content_type FROM files WHERE id = ?",
+            (file_id,),
+        )
+    if not row:
+        return None
+    # sqlite returns bytes; psycopg can return a memoryview.
+    return bytes(row["data"]), row["filename"], row["content_type"]
+
+
+def list_files(google_sub):
+    """This user's files, newest first. Never selects the bytes."""
+    with _db() as conn:
+        return _rows(
+            conn,
+            """
+            SELECT id, filename, content_type, size, created_at
+            FROM files WHERE google_sub = ? ORDER BY created_at DESC
+            """,
+            (google_sub,),
+        )
+
+
+def delete_file(google_sub, file_id):
+    """Delete one of this user's files, scoped by owner so an id alone cannot
+    delete someone else's. True if a row went away."""
+    with _db() as conn:
+        existing = _one(
+            conn, "SELECT id FROM files WHERE id = ? AND google_sub = ?", (file_id, google_sub)
+        )
+        if not existing:
+            return False
+        conn.execute(
+            _sql("DELETE FROM files WHERE id = ? AND google_sub = ?"), (file_id, google_sub)
+        )
+    return True
+
+
+def user_storage_used(google_sub):
+    with _db() as conn:
+        row = _one(
+            conn,
+            "SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE google_sub = ?",
+            (google_sub,),
+        )
+    return row["n"] if row else 0
+
 
 def touch_visitor(ip, path, user_agent):
     """Log a site visit. Returns True if this is a new visitor today."""

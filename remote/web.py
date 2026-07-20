@@ -6,11 +6,12 @@ explicit Authorization header and never cookies, so origin adds no security.
 """
 import ipaddress
 import re
+import secrets
 import time
 from collections import deque
 from datetime import datetime, timezone
 
-from starlette.responses import JSONResponse, RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from . import config, geo, gmail, storage, verify
 from .app import mcp
@@ -152,6 +153,158 @@ async def tracked_link(request):
 
     # Redirect regardless of whether the hit counted — the link always works.
     return RedirectResponse(url=url, status_code=307)
+
+
+@mcp.custom_route("/f/{file_id}", methods=["GET"])
+async def serve_file(request):
+    """Serve an uploaded file to whoever has the link — the recipient is not
+    signed in, so the unguessable id is the only credential."""
+    found = storage.read_file(request.path_params.get("file_id", ""))
+    if not found:
+        return JSONResponse({"error": "file not found"}, status_code=404)
+
+    data, filename, content_type = found
+
+    # Never echo a stored content type back: a stored text/html would run as
+    # script on our own origin. Only the allow-list is ever emitted, and
+    # anything unexpected downgrades to a plain download.
+    safe_type = content_type if content_type in config.ALLOWED_FILE_TYPES else "application/octet-stream"
+
+    return Response(
+        content=data,
+        media_type=safe_type,
+        headers={
+            # inline so a PDF opens in the browser instead of forcing a download
+            "Content-Disposition": f'inline; filename="{_safe_filename(filename)}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=300",
+        },
+    )
+
+
+def _safe_filename(name):
+    """A filename safe to put in a header — no quotes, newlines, or paths."""
+    cleaned = re.sub(r'[^A-Za-z0-9._ -]', "_", (name or "file").strip())[:80]
+    return cleaned or "file"
+
+
+@mcp.custom_route("/api/files", methods=["GET", "POST", "OPTIONS"])
+async def api_files(request):
+    """List or upload this user's files. Bearer auth, same as /api/stats."""
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    }
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+
+    if request.method == "GET":
+        return JSONResponse(
+            {
+                "files": storage.list_files(sub),
+                "storage_used": storage.user_storage_used(sub),
+                "storage_limit": config.MAX_STORAGE_PER_USER,
+                "max_files": config.MAX_FILES_PER_USER,
+                "max_file_bytes": config.MAX_FILE_BYTES,
+            },
+            headers=cors,
+        )
+
+    existing = storage.list_files(sub)
+    if len(existing) >= config.MAX_FILES_PER_USER:
+        return JSONResponse(
+            {"error": f"You can keep {config.MAX_FILES_PER_USER} files. Delete one first."},
+            status_code=400,
+            headers=cors,
+        )
+
+    try:
+        form = await request.form()
+        upload = form["file"]
+        data = await upload.read()
+    except Exception:
+        return JSONResponse(
+            {"error": "Send the file as multipart form data under the field 'file'."},
+            status_code=400,
+            headers=cors,
+        )
+
+    if not data:
+        return JSONResponse({"error": "The file is empty."}, status_code=400, headers=cors)
+
+    if len(data) > config.MAX_FILE_BYTES:
+        mb = config.MAX_FILE_BYTES / (1024 * 1024)
+        return JSONResponse(
+            {"error": f"That file is larger than the {mb:.0f} MB limit."},
+            status_code=400,
+            headers=cors,
+        )
+
+    if storage.user_storage_used(sub) + len(data) > config.MAX_STORAGE_PER_USER:
+        return JSONResponse(
+            {"error": "That would exceed your storage limit. Delete a file first."},
+            status_code=400,
+            headers=cors,
+        )
+
+    content_type = (getattr(upload, "content_type", "") or "").split(";")[0].strip()
+    if content_type not in config.ALLOWED_FILE_TYPES:
+        return JSONResponse(
+            {"error": "Only PDF and Word documents can be uploaded."},
+            status_code=400,
+            headers=cors,
+        )
+
+    # A PDF that isn't a PDF is either a mistake or someone probing; the magic
+    # bytes are a cheap check that the content matches what it claims.
+    if content_type == "application/pdf" and not data.startswith(b"%PDF"):
+        return JSONResponse(
+            {"error": "That file says it is a PDF but does not look like one."},
+            status_code=400,
+            headers=cors,
+        )
+
+    file_id = secrets.token_urlsafe(12)
+    filename = _safe_filename(getattr(upload, "filename", "") or "resume")
+    storage.save_file(file_id, sub, filename, content_type, data)
+
+    return JSONResponse(
+        {
+            "success": True,
+            "id": file_id,
+            "filename": filename,
+            "size": len(data),
+            "url": f"{config.BASE_URL}/f/{file_id}",
+        },
+        headers=cors,
+    )
+
+
+@mcp.custom_route("/api/files/{file_id}", methods=["DELETE", "OPTIONS"])
+async def api_delete_file(request):
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "DELETE, OPTIONS",
+    }
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+
+    removed = storage.delete_file(identity["sub"], request.path_params.get("file_id", ""))
+    if not removed:
+        return JSONResponse({"error": "no such file"}, status_code=404, headers=cors)
+    return JSONResponse({"success": True}, headers=cors)
 
 
 def _client_ip(request):
