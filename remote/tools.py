@@ -177,7 +177,7 @@ async def save_link(
             "links": storage.list_links(sub),
         }
 
-    storage.set_link(sub, url)
+    storage.save_named_link(sub, "default", url, make_default=True)
     return {
         "success": True,
         "name": "default",
