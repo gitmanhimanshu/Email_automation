@@ -90,6 +90,25 @@ ROLES = {
 
 DEFAULT_ROLE = "job_seeker"
 
+# Where a user goes to do the things a chat cannot do — upload an actual file,
+# manage saved resumes. Tools point people here instead of failing quietly.
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "https://setu.mimanasa.online/dashboard")
+
+# Uploaded files. They live in Postgres for now, so the ceilings are deliberately
+# tight — a resume is a few hundred KB, and anything much larger is either the
+# wrong file or an attempt to fill the database.
+MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(5 * 1024 * 1024)))
+MAX_FILES_PER_USER = int(os.getenv("MAX_FILES_PER_USER", "10"))
+MAX_STORAGE_PER_USER = int(os.getenv("MAX_STORAGE_PER_USER", str(20 * 1024 * 1024)))
+
+# Documents only. HTML and SVG are excluded on purpose: they execute script when
+# served, and these files are served from our own domain.
+ALLOWED_FILE_TYPES = {
+    "application/pdf": ".pdf",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+}
+
 # Admin panel login. Both must be set or every /admin/api route answers 503 —
 # there is no default password, so an unconfigured deploy has no admin door.
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()

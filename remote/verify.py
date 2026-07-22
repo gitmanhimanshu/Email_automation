@@ -146,6 +146,23 @@ def check_many(candidates):
 # Hosts that redirect to a sign-in page when a file is not shared publicly.
 _LOGIN_HOSTS = ("accounts.google.com", "login.microsoftonline.com", "www.dropbox.com/login")
 
+# Google answers automated requests from datacenter IPs with 403/404 even for
+# files that are shared with everyone — and this server runs on exactly such an
+# IP. Treating those statuses as proof of a private file rejected perfectly good
+# resumes. For these hosts only the redirect-to-login signal is trusted; a bare
+# error status is reported as inconclusive instead of blocking the user.
+_BOT_CHALLENGING_HOSTS = (
+    "drive.google.com",
+    "docs.google.com",
+    "drive.usercontent.google.com",
+    "googleusercontent.com",
+)
+
+
+def _is_bot_challenging(url):
+    host = urlparse(url).netloc.lower()
+    return any(host == h or host.endswith("." + h) for h in _BOT_CHALLENGING_HOSTS)
+
 
 async def check_resume_link(url):
     """Is this link something an HR person could actually open?
@@ -184,6 +201,17 @@ async def check_resume_link(url):
         return False, (
             "This link redirects to a login page, so HR could not open it. "
             "Make it viewable by anyone with the link."
+        )
+
+    # Past this point only the status code is left to go on, and for Google it
+    # says more about bot-blocking than about sharing. Anything short of the
+    # login redirect above is inconclusive there, so the user is not blocked.
+    if _is_bot_challenging(final_url) and response.status_code >= 400:
+        return True, (
+            f"Google answered HTTP {response.status_code}, which it often does for "
+            "automated checks even on files shared with everyone — so this could "
+            "not be confirmed either way. Double-check the file is set to "
+            "'Anyone with the link'."
         )
 
     if response.status_code in (401, 403):
