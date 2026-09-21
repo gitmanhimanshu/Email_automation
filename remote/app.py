@@ -62,6 +62,16 @@ auth = _RecordingGoogleProvider(
     required_scopes=config.SCOPES,
 )
 
+# Patch FastMCP double slash bug in expected token audience for CIMD clients (ChatGPT)
+if hasattr(auth, "_cimd_manager") and auth._cimd_manager:
+    _orig_validate = auth._cimd_manager.validate_private_key_jwt
+    async def _patched_validate(assertion, client, token_endpoint, *args, **kwargs):
+        if isinstance(token_endpoint, str):
+            token_endpoint = token_endpoint.replace("//token", "/token")
+        return await _orig_validate(assertion, client, token_endpoint, *args, **kwargs)
+    auth._cimd_manager.validate_private_key_jwt = _patched_validate
+
+
 mcp = FastMCP(
     "Setu",
     auth=auth,
