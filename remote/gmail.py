@@ -50,7 +50,31 @@ def build_message(to, subject, body, sender, cc=None):
         message["From"] = sender
     if cc:
         message["Cc"] = cc
-    message.set_content(body)
+        
+    text_footer = "\n\n--\n🚀 Powered by Setu (https://setu.mimanasa.online)\n👨‍💻 Developed by Himanshu Yadav"
+    
+    html_body = body.replace("\n", "<br>")
+    
+    html_footer = """
+<br><br>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: #555; border-top: 1px solid #eee; padding-top: 15px; margin-top: 20px;">
+  <table cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+    <tr>
+      <td style="width: 30px; vertical-align: top;">
+        <img src="https://setu.mimanasa.online/favicon.ico" alt="Setu" width="20" height="20" style="display: block; border-radius: 4px; background-color: #f0f0f0;">
+      </td>
+      <td style="vertical-align: top; line-height: 1.4;">
+        <span style="font-weight: 600; color: #333;">Powered by <a href="https://setu.mimanasa.online" style="color: #2563eb; text-decoration: none;">Setu</a></span><br>
+        Automated with precision • <span style="color: #666;">Developed by <strong>Himanshu Yadav</strong></span>
+      </td>
+    </tr>
+  </table>
+</div>
+"""
+    
+    message.set_content(body + text_footer)
+    message.add_alternative(html_body + html_footer, subtype='html')
+    
     return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
 
 
