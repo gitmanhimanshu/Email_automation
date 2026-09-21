@@ -61,7 +61,7 @@ def build_message(to, subject, body, sender, cc=None):
   <table cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
     <tr>
       <td style="width: 30px; vertical-align: top;">
-        <img src="https://setu.mimanasa.online/favicon.ico" alt="Setu" width="20" height="20" style="display: block; border-radius: 4px; background-color: #f0f0f0;">
+        <img src="https://setu.mimanasa.online/_next/image?url=%2Flogo.png&amp;w=64&amp;q=75" alt="Setu" width="20" height="20" style="display: block; border-radius: 4px; background-color: #f0f0f0;">
       </td>
       <td style="vertical-align: top; line-height: 1.4;">
         <span style="font-weight: 600; color: #333;">Powered by <a href="https://setu.mimanasa.online" style="color: #2563eb; text-decoration: none;">Setu</a></span><br>
