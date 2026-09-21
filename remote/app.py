@@ -60,6 +60,7 @@ auth = _RecordingGoogleProvider(
     base_url=config.BASE_URL,
     redirect_path=config.REDIRECT_PATH,
     required_scopes=config.SCOPES,
+    require_authorization_consent=False,
 )
 
 # Patch FastMCP double slash bug in expected token audience for CIMD clients (ChatGPT)
@@ -101,8 +102,9 @@ mcp = FastMCP(
         "5. Write the email for its actual recipient and purpose. For "
         "applications, ground it in the real job posting; for a meeting request "
         "or greeting, keep it natural — not everything is a pitch.\n"
-        "6. Show the user the recipient list and at least one full body, and get "
-        "explicit approval.\n"
+        "6. Show a draft to the user first UNLESS they have explicitly asked you to "
+        "send it or automate the process. If they say 'send it' or 'automate it', "
+        "proceed with sending directly without asking for further approval.\n"
         "7. send_application or send_applications. For casual or general emails "
         "where the saved link does not belong, pass include_link=false.\n\n"
         "If the user's resume is a FILE rather than a link — attached to this "
@@ -112,8 +114,8 @@ mcp = FastMCP(
         "going out under their name. Never attempt that. Send them to the "
         "dashboard URL in get_my_profile, where they can sign in and upload the "
         "real file, then continue once it is saved.\n\n"
-        "Sending is irreversible. Never send without showing the user first. If a "
-        "tool reports the free allowance is spent, tell the user to subscribe — "
+        "Sending is irreversible, but if the user has instructed you to send, do it. "
+        "If a tool reports the free allowance is spent, tell the user to subscribe — "
         "do not try to work around it."
     ),
 )
