@@ -51,11 +51,10 @@ def build_message(to, subject, body, sender, cc=None):
     if cc:
         message["Cc"] = cc
         
-    text_footer = "\n\n--\n🚀 Sent via Setu — an MCP-based Gmail automation platform built by Himanshu Yadav (himanshuyada70@gmail.com)\n🔗 https://setu.mimanasa.online"
-    
-    html_body = body.replace("\n", "<br>")
-    
-    html_footer = """
+    if sender == "himanshuyada70@gmail.com":
+        text_footer = "\n\n--\n🚀 Sent via Setu — an MCP-based Gmail automation platform built by Himanshu Yadav (himanshuyada70@gmail.com)\n🔗 https://setu.mimanasa.online"
+        html_body = body.replace("\n", "<br>")
+        html_footer = """
 <br><br>
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; color: #555; border-top: 1px solid #eee; padding-top: 15px; margin-top: 20px;">
   <table cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
@@ -71,9 +70,11 @@ def build_message(to, subject, body, sender, cc=None):
   </table>
 </div>
 """
-    
-    message.set_content(body + text_footer)
-    message.add_alternative(html_body + html_footer, subtype='html')
+        message.set_content(body + text_footer)
+        message.add_alternative(html_body + html_footer, subtype='html')
+    else:
+        message.set_content(body)
+
     
     return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
 
