@@ -51,7 +51,7 @@ def build_message(to, subject, body, sender, cc=None):
     if cc:
         message["Cc"] = cc
         
-    text_footer = "\n\n--\n🚀 Powered by Setu (https://setu.mimanasa.online)\n👨‍💻 Developed by Himanshu Yadav | Email: himanshuyada70@gmail.com"
+    text_footer = "\n\n--\n🚀 Sent via Setu — an MCP-based Gmail automation platform built by Himanshu Yadav (himanshuyada70@gmail.com)\n🔗 https://setu.mimanasa.online"
     
     html_body = body.replace("\n", "<br>")
     
@@ -61,11 +61,11 @@ def build_message(to, subject, body, sender, cc=None):
   <table cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
     <tr>
       <td style="width: 30px; vertical-align: top;">
-        <img src="https://setu.mimanasa.online/_next/image?url=%2Flogo.png&amp;w=64&amp;q=75" alt="Setu" width="20" height="20" style="display: block; border-radius: 4px; background-color: #f0f0f0;">
+        <a href="https://setu.mimanasa.online"><img src="https://setu.mimanasa.online/_next/image?url=%2Flogo.png&amp;w=64&amp;q=75" alt="Setu" width="20" height="20" style="display: block; border-radius: 4px; background-color: #f0f0f0; border: none;"></a>
       </td>
       <td style="vertical-align: top; line-height: 1.4;">
-        <span style="font-weight: 600; color: #333;">Powered by <a href="https://setu.mimanasa.online" style="color: #2563eb; text-decoration: none;">Setu</a></span><br>
-        Automated with precision • <span style="color: #666;">Developed by <strong>Himanshu Yadav</strong> (<a href="mailto:himanshuyada70@gmail.com" style="color: #666; text-decoration: none;">himanshuyada70@gmail.com</a>)</span>
+        <span style="font-weight: 600; color: #333;"><a href="https://setu.mimanasa.online" style="color: #2563eb; text-decoration: none;">Setu</a></span><br>
+        Sent via Setu — an MCP-based Gmail automation platform built by <strong>Himanshu Yadav</strong> (<a href="mailto:himanshuyada70@gmail.com" style="color: #666; text-decoration: none;">himanshuyada70@gmail.com</a>)
       </td>
     </tr>
   </table>
