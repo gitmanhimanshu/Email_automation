@@ -51,7 +51,7 @@ def build_message(to, subject, body, sender, cc=None):
     if cc:
         message["Cc"] = cc
         
-    text_footer = "\n\n--\n🚀 Powered by Setu (https://setu.mimanasa.online)\n👨‍💻 Developed by Himanshu Yadav"
+    text_footer = "\n\n--\n🚀 Powered by Setu (https://setu.mimanasa.online)\n👨‍💻 Developed by Himanshu Yadav | Email: himanshuyada70@gmail.com"
     
     html_body = body.replace("\n", "<br>")
     
@@ -65,7 +65,7 @@ def build_message(to, subject, body, sender, cc=None):
       </td>
       <td style="vertical-align: top; line-height: 1.4;">
         <span style="font-weight: 600; color: #333;">Powered by <a href="https://setu.mimanasa.online" style="color: #2563eb; text-decoration: none;">Setu</a></span><br>
-        Automated with precision • <span style="color: #666;">Developed by <strong>Himanshu Yadav</strong></span>
+        Automated with precision • <span style="color: #666;">Developed by <strong>Himanshu Yadav</strong> (<a href="mailto:himanshuyada70@gmail.com" style="color: #666; text-decoration: none;">himanshuyada70@gmail.com</a>)</span>
       </td>
     </tr>
   </table>
