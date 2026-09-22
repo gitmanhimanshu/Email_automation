@@ -345,6 +345,7 @@ async def api_visit(request):
     except Exception:
         body = {}
     path = (body.get("path") or "/")[:400]
+    played_video = bool(body.get("played_video"))
     user_agent = request.headers.get("user-agent", "")[:400]
 
     try:
@@ -356,7 +357,7 @@ async def api_visit(request):
         if not known and not _NEW_VISITOR_LIMIT.allow():
             return JSONResponse({"ok": True}, headers=cors)
 
-        storage.touch_visitor(ip, path, user_agent)
+        storage.touch_visitor(ip, path, user_agent, played_video=played_video)
 
         # Keyed on "we have no location for this IP", not "first visit today" —
         # otherwise every returning visitor costs another lookup every day.

@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS visitors (
     user_agent   TEXT,
     path         TEXT,
     visit_count  INTEGER NOT NULL DEFAULT 1,
+    played_video INTEGER NOT NULL DEFAULT 0,
     first_seen   TEXT NOT NULL,
     last_seen    TEXT NOT NULL
 );
@@ -113,6 +114,7 @@ CREATE TABLE IF NOT EXISTS visitors (
     user_agent   TEXT,
     path         TEXT,
     visit_count  INTEGER NOT NULL DEFAULT 1,
+    played_video INTEGER NOT NULL DEFAULT 0,
     first_seen   TEXT NOT NULL,
     last_seen    TEXT NOT NULL
 );
@@ -211,6 +213,7 @@ MIGRATIONS = [
     # the assistant can match one to a job description instead of guessing from
     # a bare name like "resume2".
     ("links", "description", "TEXT"),
+    ("visitors", "played_video", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -760,21 +763,36 @@ def user_storage_used(google_sub):
     return row["n"] if row else 0
 
 
-def touch_visitor(ip, path, user_agent):
+def touch_visitor(ip, path, user_agent, played_video=False):
     """Log a site visit. Returns True if this is a new visitor today."""
     today = _now()[:10]  # YYYY-MM-DD
     with _db() as conn:
         row = _one(conn, "SELECT last_seen FROM visitors WHERE ip = ?", (ip,))
         is_new = not row or row["last_seen"][:10] != today
+        
+        updates = [
+            "visit_count = visitors.visit_count + 1",
+            "last_seen = EXCLUDED.last_seen",
+            "path = EXCLUDED.path"
+        ]
+        if played_video:
+            updates.append("played_video = 1")
+            
+        update_clause = ",\n                    ".join(updates)
+        
+        insert_cols = "ip, path, user_agent, first_seen, last_seen"
+        insert_vals = "?, ?, ?, ?, ?"
+        if played_video:
+            insert_cols += ", played_video"
+            insert_vals += ", 1"
+            
         conn.execute(
             _sql(
-                """
-                INSERT INTO visitors (ip, path, user_agent, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?)
+                f"""
+                INSERT INTO visitors ({insert_cols})
+                VALUES ({insert_vals})
                 ON CONFLICT (ip) DO UPDATE SET
-                    visit_count = visitors.visit_count + 1,
-                    last_seen = EXCLUDED.last_seen,
-                    path = EXCLUDED.path
+                    {update_clause}
                 """
             ),
             (ip, path, user_agent, _now(), _now()),
