@@ -28,6 +28,34 @@ def main():
             f"Missing environment variables: {', '.join(missing)}\n"
             "See remote/README.md for setup."
         )
+
+    # Temporary patch to log raw MCP incoming requests for debugging
+    import starlette.requests
+    import starlette.responses
+    
+    orig_body = starlette.requests.Request.body
+    async def patched_body(self):
+        b = await orig_body(self)
+        if "mcp" in self.url.path:
+            print(f"===== MCP REQUEST ({self.method} {self.url.path}) =====")
+            try:
+                print(b.decode("utf-8"))
+            except Exception as e:
+                print(f"<Could not decode body: {e}>")
+        return b
+    starlette.requests.Request.body = patched_body
+
+    orig_response = starlette.responses.Response.__call__
+    async def patched_response(self, scope, receive, send):
+        if scope["type"] == "http" and "mcp" in scope.get("path", ""):
+            print(f"===== MCP RESPONSE ({self.status_code}) =====")
+            try:
+                print(self.body.decode("utf-8"))
+            except Exception:
+                pass
+        return await orig_response(self, scope, receive, send)
+    starlette.responses.Response.__call__ = patched_response
+
     mcp.run(transport="http", host=config.HOST, port=config.PORT)
 
 
