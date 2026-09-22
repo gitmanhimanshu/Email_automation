@@ -645,13 +645,13 @@ def company_open_stats(google_sub, limit=100):
     return rows
 
 def sent_today(google_sub):
-    """Successful sends in the last 24h — the daily cap is enforced on this."""
-    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+    """Successful sends today (since UTC midnight) — the daily cap is enforced on this."""
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
     with _db() as conn:
         row = _one(
             conn,
-            "SELECT COUNT(*) AS n FROM sends WHERE google_sub = ? AND success = 1 AND sent_at > ?",
-            (google_sub, since),
+            "SELECT COUNT(*) AS n FROM sends WHERE google_sub = ? AND success = 1 AND sent_at >= ?",
+            (google_sub, today_start),
         )
     return row["n"] if row else 0
 
@@ -817,7 +817,7 @@ def admin_totals():
 
 def admin_list_users():
     """Every user with their send counts, most active first. Admin panel only."""
-    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
     with _db() as conn:
         return _rows(
             conn,
@@ -826,7 +826,7 @@ def admin_list_users():
                    u.subscribed_at, u.subscription_ends_at, u.created_at,
                    COALESCE(SUM(CASE WHEN s.success = 1 THEN 1 ELSE 0 END), 0) AS sent,
                    COALESCE(SUM(CASE WHEN s.success = 0 THEN 1 ELSE 0 END), 0) AS failed,
-                   COALESCE(SUM(CASE WHEN s.success = 1 AND s.sent_at > ? THEN 1 ELSE 0 END), 0) AS sent_24h,
+                   COALESCE(SUM(CASE WHEN s.success = 1 AND s.sent_at >= ? THEN 1 ELSE 0 END), 0) AS sent_today,
                    MAX(s.sent_at) AS last_sent_at
             FROM users u
             LEFT JOIN sends s ON s.google_sub = u.google_sub
@@ -834,7 +834,7 @@ def admin_list_users():
                      u.subscribed_at, u.subscription_ends_at, u.created_at
             ORDER BY sent DESC, u.created_at DESC
             """,
-            (since,),
+            (today_start,),
         )
 
 def admin_list_visitors(page=1, per_page=100):
