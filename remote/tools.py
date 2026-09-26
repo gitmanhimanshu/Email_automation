@@ -73,6 +73,7 @@ async def get_my_profile() -> dict:
     used_today = storage.sent_today(sub)
     lifetime = storage.total_sent(sub)
     plan = user.get("plan", "free")
+    is_free = (plan == "free")
 
     return {
         "email": identity["email"],
@@ -90,11 +91,11 @@ async def get_my_profile() -> dict:
         "subscribed_at": user.get("subscribed_at"),
         "subscription_ends_at": user.get("subscription_ends_at"),
         "total_sent": lifetime,
-        "free_email_limit": config.FREE_EMAIL_LIMIT,
-        "free_remaining": max(0, config.FREE_EMAIL_LIMIT - lifetime) if plan == "free" else None,
+        "free_email_limit": config.FREE_DAILY_SEND_LIMIT if is_free else None,
+        "free_remaining": max(0, config.FREE_DAILY_SEND_LIMIT - used_today) if is_free else None,
         "sent_last_24h": used_today,
-        "daily_limit": config.DAILY_SEND_LIMIT,
-        "remaining_today": max(0, config.DAILY_SEND_LIMIT - used_today),
+        "daily_limit": config.FREE_DAILY_SEND_LIMIT if is_free else None,
+        "remaining_today": max(0, config.FREE_DAILY_SEND_LIMIT - used_today) if is_free else None,
         "max_per_batch": config.MAX_PER_BATCH,
         "dashboard_url": config.DASHBOARD_URL,
         "setup_needed": link_problem(user) or plan_problem(user, sub),
@@ -351,12 +352,14 @@ async def send_application(
         if not check["ok"]:
             return {"success": False, "to": to, "error": "; ".join(check["reasons"])}
 
-    used = storage.sent_today(sub)
-    if used >= config.DAILY_SEND_LIMIT:
-        return {
-            "success": False,
-            "error": f"Daily limit reached ({used}/{config.DAILY_SEND_LIMIT}). Try tomorrow.",
-        }
+    plan = user.get("plan", "free")
+    if plan == "free":
+        used = storage.sent_today(sub)
+        if used >= config.FREE_DAILY_SEND_LIMIT:
+            return {
+                "success": False,
+                "error": f"Daily limit reached ({used}/{config.FREE_DAILY_SEND_LIMIT}). Free plan allows {config.FREE_DAILY_SEND_LIMIT} emails per day. Try tomorrow or upgrade to Pro for unlimited emails.",
+            }
 
     tracked_link = None
     track_id = None
@@ -426,16 +429,17 @@ async def send_applications(
     if problem:
         return {"success": False, "error": problem, "needs": "subscription"}
 
+    plan = user.get("plan", "free")
     used = storage.sent_today(sub)
-    remaining = config.DAILY_SEND_LIMIT - used
-    if remaining <= 0:
-        return {
-            "success": False,
-            "error": f"Daily limit reached ({used}/{config.DAILY_SEND_LIMIT}). Try tomorrow.",
-        }
-
-    if user.get("plan", "free") == "free":
-        remaining = min(remaining, config.FREE_EMAIL_LIMIT - storage.total_sent(sub))
+    if plan == "free":
+        remaining = config.FREE_DAILY_SEND_LIMIT - used
+        if remaining <= 0:
+            return {
+                "success": False,
+                "error": f"Daily limit reached ({used}/{config.FREE_DAILY_SEND_LIMIT}). Free plan allows {config.FREE_DAILY_SEND_LIMIT} emails per day. Try tomorrow or upgrade to Pro for unlimited emails.",
+            }
+    else:
+        remaining = None
 
     verdict = {}
     if config.VERIFY_HR_EMAILS:
@@ -464,14 +468,13 @@ async def send_applications(
                 )
                 continue
 
-        if len(sent) >= remaining:
+        if remaining is not None and len(sent) >= remaining:
             skipped.append(
                 {
                     "to": application.to,
                     "reason": (
-                        "free plan allowance spent - subscribe to send the rest"
-                        if user.get("plan", "free") == "free"
-                        else "daily limit reached"
+                        f"Free plan daily limit reached ({config.FREE_DAILY_SEND_LIMIT}/day) - "
+                        "upgrade to Pro for unlimited emails"
                     ),
                 }
             )
@@ -531,11 +534,15 @@ async def send_applications(
 async def get_sent_history(limit: int = 20) -> dict:
     """The applications this user has already sent, newest first."""
     _, identity = await current_user()
-    storage.upsert_user(identity["sub"], identity["email"], identity.get("name"))
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+    user = storage.get_user(sub) or {}
+    plan = user.get("plan", "free")
     return {
-        "sent_last_24h": storage.sent_today(identity["sub"]),
-        "daily_limit": config.DAILY_SEND_LIMIT,
-        "entries": storage.recent_sends(identity["sub"], limit),
+        "plan": plan,
+        "sent_last_24h": storage.sent_today(sub),
+        "daily_limit": config.FREE_DAILY_SEND_LIMIT if plan == "free" else None,
+        "entries": storage.recent_sends(sub, limit),
     }
 
 
@@ -552,6 +559,7 @@ async def get_my_stats() -> dict:
     stats = storage.lifetime_stats(sub)
     used_today = storage.sent_today(sub)
     plan = user.get("plan", "free")
+    is_free = (plan == "free")
 
     return {
         "email": identity["email"],
@@ -563,9 +571,9 @@ async def get_my_stats() -> dict:
         "opened_sends": stats["opened_sends"],
         "companies_reached": stats["companies_reached"],
         "sent_last_24h": used_today,
-        "daily_limit": config.DAILY_SEND_LIMIT,
-        "remaining_today": max(0, config.DAILY_SEND_LIMIT - used_today),
-        "free_remaining": max(0, config.FREE_EMAIL_LIMIT - lifetime) if plan == "free" else None,
+        "daily_limit": config.FREE_DAILY_SEND_LIMIT if is_free else None,
+        "remaining_today": max(0, config.FREE_DAILY_SEND_LIMIT - used_today) if is_free else None,
+        "free_remaining": max(0, config.FREE_DAILY_SEND_LIMIT - used_today) if is_free else None,
         "subscription_ends_at": user.get("subscription_ends_at"),
         "recent": [
             {

@@ -59,11 +59,13 @@ SCOPES = [
 # Per-user guardrails. Gmail's own ceiling for a free account is roughly 500/day;
 # staying well under it protects the user's account reputation.
 MAX_PER_BATCH = 25
-DAILY_SEND_LIMIT = int(os.getenv("DAILY_SEND_LIMIT", "80"))
+# Free tier daily limit (80 emails/day). Pro tier has unlimited sends.
+FREE_DAILY_SEND_LIMIT = int(os.getenv("FREE_DAILY_SEND_LIMIT", os.getenv("DAILY_SEND_LIMIT", "80")))
+DAILY_SEND_LIMIT = FREE_DAILY_SEND_LIMIT
 DEFAULT_DELAY_SECONDS = int(os.getenv("EMAIL_DELAY", "5"))
 
-# Free plan: this many successful sends, lifetime, then a subscription is needed.
-FREE_EMAIL_LIMIT = int(os.getenv("FREE_EMAIL_LIMIT", "5"))
+# Free tier daily limit
+FREE_EMAIL_LIMIT = FREE_DAILY_SEND_LIMIT
 
 # Who's using Setu. The role decides what link rides along with each email and
 # what the tools call it — the machinery underneath is identical.

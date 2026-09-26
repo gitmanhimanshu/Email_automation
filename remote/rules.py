@@ -49,16 +49,17 @@ def link_problem(user):
 
 
 def plan_problem(user, sub):
-    """Free-plan allowance check. Lifetime, not daily."""
+    """Free tier daily allowance check (80 emails/day). Pro tier has unlimited sends."""
     if (user or {}).get("plan", "free") != "free":
+        # Pro / paid plans have unlimited sends
         return None
 
-    used = storage.total_sent(sub)
-    if used < config.FREE_EMAIL_LIMIT:
+    used_today = storage.sent_today(sub)
+    if used_today < config.FREE_DAILY_SEND_LIMIT:
         return None
 
     return (
-        f"The free plan covers {config.FREE_EMAIL_LIMIT} emails and this user has "
-        f"sent {used}. Tell them to subscribe to keep sending — do not attempt to "
-        "work around this."
+        f"Daily limit reached ({used_today}/{config.FREE_DAILY_SEND_LIMIT}). "
+        f"Free plan allows up to {config.FREE_DAILY_SEND_LIMIT} emails per day (resets at UTC midnight). "
+        f"Upgrade to Pro for unlimited emails or wait until tomorrow."
     )

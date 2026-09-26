@@ -481,8 +481,10 @@ async def api_stats(request):
     history = storage.recent_sends(sub, limit=200)
     role = user.get("role") if user.get("role") in config.ROLES else None
     plan = user.get("plan", "free")
+    is_free = (plan == "free")
     lifetime = storage.total_sent(sub)
     stats = storage.lifetime_stats(sub)
+    used_today = storage.sent_today(sub)
 
     return JSONResponse(
         {
@@ -497,14 +499,14 @@ async def api_stats(request):
             "plan": plan,
             "subscribed_at": user.get("subscribed_at"),
             "subscription_ends_at": user.get("subscription_ends_at"),
-            "free_email_limit": config.FREE_EMAIL_LIMIT,
-            "free_remaining": max(0, config.FREE_EMAIL_LIMIT - lifetime) if plan == "free" else None,
+            "free_email_limit": config.FREE_DAILY_SEND_LIMIT if is_free else None,
+            "free_remaining": max(0, config.FREE_DAILY_SEND_LIMIT - used_today) if is_free else None,
             "total_sent": lifetime,
             "total_failed": stats["total_failed"],
             "total_opens": stats["total_opens"],
             "opened_sends": stats["opened_sends"],
-            "sent_last_24h": storage.sent_today(sub),
-            "daily_limit": config.DAILY_SEND_LIMIT,
+            "sent_last_24h": used_today,
+            "daily_limit": config.FREE_DAILY_SEND_LIMIT if is_free else None,
             "companies": stats["companies_reached"],
             "company_opens": storage.company_open_stats(sub),
             "recent": [

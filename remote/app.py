@@ -115,7 +115,8 @@ mcp = FastMCP(
         "dashboard URL in get_my_profile, where they can sign in and upload the "
         "real file, then continue once it is saved.\n\n"
         "Sending is irreversible, but if the user has instructed you to send, do it. "
-        "If a tool reports the free allowance is spent, tell the user to subscribe — "
-        "do not try to work around it."
+        "The free tier allows up to 80 emails per day (resetting daily at UTC midnight). "
+        "The Pro tier has unlimited daily sends. If a tool reports the daily limit is reached, "
+        "inform the user they can upgrade to Pro for unlimited emails or wait until tomorrow."
     ),
 )
