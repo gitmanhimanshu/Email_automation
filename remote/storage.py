@@ -591,13 +591,22 @@ def record_sends(google_sub, results):
         else:
             conn.executemany(query, rows)
 
-def recent_sends(google_sub, limit=20):
+def recent_sends(google_sub, limit=20, offset=0):
     with _db() as conn:
         return _rows(
             conn,
-            "SELECT * FROM sends WHERE google_sub = ? ORDER BY id DESC LIMIT ?",
-            (google_sub, limit),
+            "SELECT * FROM sends WHERE google_sub = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (google_sub, limit, offset),
         )
+
+def total_sends_count(google_sub):
+    with _db() as conn:
+        row = _one(
+            conn,
+            "SELECT COUNT(*) AS n FROM sends WHERE google_sub = ?",
+            (google_sub,),
+        )
+    return row["n"] if row else 0
 
 def link_activity(google_sub, limit=100):
     """Every tracked send with its open data, including the never-opened ones.
@@ -622,7 +631,7 @@ def link_activity(google_sub, limit=100):
         )
 
 
-def company_open_stats(google_sub, limit=100):
+def company_open_stats(google_sub, limit=20, offset=0):
     """Company-level open counts across the user's successful sends."""
     with _db() as conn:
         rows = _rows(
@@ -641,11 +650,28 @@ def company_open_stats(google_sub, limit=100):
               AND open_count > 0
             GROUP BY company
             ORDER BY total_opens DESC, company ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            (google_sub, limit),
+            (google_sub, limit, offset),
         )
     return rows
+
+def total_company_opens_count(google_sub):
+    with _db() as conn:
+        row = _one(
+            conn,
+            """
+            SELECT COUNT(DISTINCT company) AS n
+            FROM sends
+            WHERE google_sub = ?
+              AND success = 1
+              AND company IS NOT NULL
+              AND TRIM(company) != ''
+              AND open_count > 0
+            """,
+            (google_sub,),
+        )
+    return row["n"] if row else 0
 
 def sent_today(google_sub):
     """Successful sends today (since UTC midnight) — the daily cap is enforced on this."""

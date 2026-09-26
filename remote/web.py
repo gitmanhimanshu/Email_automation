@@ -478,13 +478,39 @@ async def api_stats(request):
     sub = identity["sub"]
     storage.upsert_user(sub, identity["email"], identity.get("name"))
     user = storage.get_user(sub) or {}
-    history = storage.recent_sends(sub, limit=200)
     role = user.get("role") if user.get("role") in config.ROLES else None
     plan = user.get("plan", "free")
     is_free = (plan == "free")
     lifetime = storage.total_sent(sub)
     stats = storage.lifetime_stats(sub)
     used_today = storage.sent_today(sub)
+
+    try:
+        sends_page = max(1, int(request.query_params.get("sends_page", request.query_params.get("page", 1))))
+    except (ValueError, TypeError):
+        sends_page = 1
+    try:
+        sends_limit = max(1, min(100, int(request.query_params.get("sends_limit", request.query_params.get("limit", 20)))))
+    except (ValueError, TypeError):
+        sends_limit = 20
+
+    try:
+        company_page = max(1, int(request.query_params.get("company_page", 1)))
+    except (ValueError, TypeError):
+        company_page = 1
+    try:
+        company_limit = max(1, min(100, int(request.query_params.get("company_limit", 20))))
+    except (ValueError, TypeError):
+        company_limit = 20
+
+    sends_offset = (sends_page - 1) * sends_limit
+    company_offset = (company_page - 1) * company_limit
+
+    total_sends = storage.total_sends_count(sub)
+    history = storage.recent_sends(sub, limit=sends_limit, offset=sends_offset)
+
+    total_companies_opened = storage.total_company_opens_count(sub)
+    company_opens = storage.company_open_stats(sub, limit=company_limit, offset=company_offset)
 
     return JSONResponse(
         {
@@ -508,7 +534,11 @@ async def api_stats(request):
             "sent_last_24h": used_today,
             "daily_limit": config.FREE_DAILY_SEND_LIMIT if is_free else None,
             "companies": stats["companies_reached"],
-            "company_opens": storage.company_open_stats(sub),
+            "company_opens": company_opens,
+            "company_opens_total": total_companies_opened,
+            "company_opens_page": company_page,
+            "company_opens_limit": company_limit,
+            "company_opens_total_pages": max(1, (total_companies_opened + company_limit - 1) // company_limit),
             "recent": [
                 {
                     "to_email": r["to_email"],
@@ -522,8 +552,107 @@ async def api_stats(request):
                     "last_opened_at": r.get("last_opened_at"),
                     "link_name": r.get("link_name"),
                 }
-                for r in history[:25]
+                for r in history
             ],
+            "recent_total": total_sends,
+            "recent_page": sends_page,
+            "recent_limit": sends_limit,
+            "recent_total_pages": max(1, (total_sends + sends_limit - 1) // sends_limit),
+        },
+        headers=cors,
+    )
+
+
+@mcp.custom_route("/api/sends", methods=["GET", "OPTIONS"])
+async def api_sends(request):
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization",
+    }
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+
+    sub = identity["sub"]
+    try:
+        page = max(1, int(request.query_params.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        limit = max(1, min(100, int(request.query_params.get("limit", 20))))
+    except (ValueError, TypeError):
+        limit = 20
+
+    offset = (page - 1) * limit
+    total = storage.total_sends_count(sub)
+    history = storage.recent_sends(sub, limit=limit, offset=offset)
+
+    items = [
+        {
+            "to_email": r["to_email"],
+            "company": r["company"],
+            "subject": r["subject"],
+            "success": bool(r["success"]),
+            "error": r["error"],
+            "sent_at": r["sent_at"],
+            "open_count": r.get("open_count") or 0,
+            "first_opened_at": r.get("first_opened_at"),
+            "last_opened_at": r.get("last_opened_at"),
+            "link_name": r.get("link_name"),
+        }
+        for r in history
+    ]
+
+    return JSONResponse(
+        {
+            "items": items,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": max(1, (total + limit - 1) // limit),
+        },
+        headers=cors,
+    )
+
+
+@mcp.custom_route("/api/company_opens", methods=["GET", "OPTIONS"])
+@mcp.custom_route("/api/company-opens", methods=["GET", "OPTIONS"])
+async def api_company_opens(request):
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization",
+    }
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+
+    sub = identity["sub"]
+    try:
+        page = max(1, int(request.query_params.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        limit = max(1, min(100, int(request.query_params.get("limit", 20))))
+    except (ValueError, TypeError):
+        limit = 20
+
+    offset = (page - 1) * limit
+    total = storage.total_company_opens_count(sub)
+    rows = storage.company_open_stats(sub, limit=limit, offset=offset)
+
+    return JSONResponse(
+        {
+            "items": rows,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": max(1, (total + limit - 1) // limit),
         },
         headers=cors,
     )
