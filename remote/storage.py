@@ -654,6 +654,7 @@ def company_open_stats(google_sub, limit=20, offset=0, sort="latest"):
                 company,
                 SUM(open_count) AS total_opens,
                 SUM(CASE WHEN open_count > 0 THEN 1 ELSE 0 END) AS opened_sends,
+                MIN(first_opened_at) AS first_opened_at,
                 MAX(last_opened_at) AS last_opened_at
             FROM sends
             WHERE google_sub = ?
