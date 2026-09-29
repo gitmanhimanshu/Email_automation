@@ -591,11 +591,16 @@ def record_sends(google_sub, results):
         else:
             conn.executemany(query, rows)
 
-def recent_sends(google_sub, limit=20, offset=0):
+def recent_sends(google_sub, limit=20, offset=0, sort="recent"):
+    order_clause = (
+        "ORDER BY CASE WHEN last_opened_at IS NULL THEN 1 ELSE 0 END, last_opened_at DESC, id DESC"
+        if sort == "opened"
+        else "ORDER BY id DESC"
+    )
     with _db() as conn:
         return _rows(
             conn,
-            "SELECT * FROM sends WHERE google_sub = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM sends WHERE google_sub = ? {order_clause} LIMIT ? OFFSET ?",
             (google_sub, limit, offset),
         )
 
@@ -631,12 +636,20 @@ def link_activity(google_sub, limit=100):
         )
 
 
-def company_open_stats(google_sub, limit=20, offset=0):
-    """Company-level open counts across the user's successful sends."""
+def company_open_stats(google_sub, limit=20, offset=0, sort="latest"):
+    """Company-level open counts across the user's successful sends.
+    Defaults to sorting by latest view (last_opened_at DESC) so recent opens
+    appear at the top rather than high-open emails from months ago.
+    """
+    if sort == "opens":
+        order_clause = "ORDER BY total_opens DESC, CASE WHEN MAX(last_opened_at) IS NULL THEN 1 ELSE 0 END, MAX(last_opened_at) DESC, company ASC"
+    else:
+        order_clause = "ORDER BY CASE WHEN MAX(last_opened_at) IS NULL THEN 1 ELSE 0 END, MAX(last_opened_at) DESC, total_opens DESC, company ASC"
+
     with _db() as conn:
         rows = _rows(
             conn,
-            """
+            f"""
             SELECT
                 company,
                 SUM(open_count) AS total_opens,
@@ -649,7 +662,7 @@ def company_open_stats(google_sub, limit=20, offset=0):
               AND TRIM(company) != ''
               AND open_count > 0
             GROUP BY company
-            ORDER BY total_opens DESC, company ASC
+            {order_clause}
             LIMIT ? OFFSET ?
             """,
             (google_sub, limit, offset),

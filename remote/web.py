@@ -506,11 +506,14 @@ async def api_stats(request):
     sends_offset = (sends_page - 1) * sends_limit
     company_offset = (company_page - 1) * company_limit
 
+    company_sort = request.query_params.get("company_sort", "latest")
+    sends_sort = request.query_params.get("sends_sort", "recent")
+
     total_sends = storage.total_sends_count(sub)
-    history = storage.recent_sends(sub, limit=sends_limit, offset=sends_offset)
+    history = storage.recent_sends(sub, limit=sends_limit, offset=sends_offset, sort=sends_sort)
 
     total_companies_opened = storage.total_company_opens_count(sub)
-    company_opens = storage.company_open_stats(sub, limit=company_limit, offset=company_offset)
+    company_opens = storage.company_open_stats(sub, limit=company_limit, offset=company_offset, sort=company_sort)
 
     return JSONResponse(
         {
@@ -586,9 +589,11 @@ async def api_sends(request):
     except (ValueError, TypeError):
         limit = 20
 
+    sort = request.query_params.get("sort", "recent")
+
     offset = (page - 1) * limit
     total = storage.total_sends_count(sub)
-    history = storage.recent_sends(sub, limit=limit, offset=offset)
+    history = storage.recent_sends(sub, limit=limit, offset=offset, sort=sort)
 
     items = [
         {
@@ -642,9 +647,11 @@ async def api_company_opens(request):
     except (ValueError, TypeError):
         limit = 20
 
+    sort = request.query_params.get("sort", "latest")
+
     offset = (page - 1) * limit
     total = storage.total_company_opens_count(sub)
-    rows = storage.company_open_stats(sub, limit=limit, offset=offset)
+    rows = storage.company_open_stats(sub, limit=limit, offset=offset, sort=sort)
 
     return JSONResponse(
         {
