@@ -135,10 +135,13 @@ def send_email(
     if attach_pdf and resume_format in ("both", "pdf_only"):
         target = pdf_path or config.resume_link()
         if target:
-            pdf_bytes, filename, _ = fetch_pdf_sync(target, config.your_name())
-            if pdf_bytes:
-                attachment_bytes = pdf_bytes
-                attachment_filename = filename
+            try:
+                pdf_bytes, filename, _ = fetch_pdf_sync(target, config.your_name())
+                if pdf_bytes:
+                    attachment_bytes = pdf_bytes
+                    attachment_filename = filename
+            except Exception:
+                pass
 
     try:
         result = _sender().send(
@@ -205,12 +208,15 @@ def send_bulk_emails(
         if should_attach and resume_format in ("both", "pdf_only"):
             target = email.pdf_path or config.resume_link()
             if target:
-                if target not in pdf_cache:
-                    pdf_cache[target] = fetch_pdf_sync(target, config.your_name())
-                p_bytes, f_name, _ = pdf_cache[target]
-                if p_bytes:
-                    attachment_bytes = p_bytes
-                    attachment_filename = f_name
+                try:
+                    if target not in pdf_cache:
+                        pdf_cache[target] = fetch_pdf_sync(target, config.your_name())
+                    p_bytes, f_name, _ = pdf_cache[target]
+                    if p_bytes:
+                        attachment_bytes = p_bytes
+                        attachment_filename = f_name
+                except Exception:
+                    pass
 
         res = sender.send(
             email.to,

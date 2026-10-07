@@ -38,122 +38,129 @@ def format_pdf_filename(user_name: str | None = None) -> str:
 
 async def fetch_pdf(url_or_path: str, user_name: str | None = None) -> tuple[bytes | None, str | None, str | None]:
     """Fetch PDF bytes from a Google Drive link, generic URL, or local file.
+    Guaranteed never to raise an unhandled exception or crash.
 
     Returns: (pdf_bytes, filename, error_message)
     """
-    target = (url_or_path or "").strip()
-    if not target:
-        return None, None, "No resume link or file path provided."
-
-    filename = format_pdf_filename(user_name)
-
-    # 1. Check if it is a local file
     try:
-        local_p = Path(target)
-        if local_p.is_file():
-            content = local_p.read_bytes()
-            if len(content) > 0:
-                return content, local_p.name or filename, None
-    except Exception:
-        pass
+        target = (url_or_path or "").strip()
+        if not target:
+            return None, None, "No resume link or file path provided."
 
-    # 2. Must be an HTTP(S) URL
-    if not target.startswith(("http://", "https://")):
-        return None, None, f"Unsupported link or file path: {target}"
+        filename = format_pdf_filename(user_name)
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
+        # 1. Check if it is a local file
+        try:
+            local_p = Path(target)
+            if local_p.is_file():
+                content = local_p.read_bytes()
+                if len(content) > 0:
+                    return content, local_p.name or filename, None
+        except Exception:
+            pass
 
-    # 3. Google Drive / Docs handling
-    drive_id = extract_drive_id(target)
-    download_urls = []
-    if drive_id:
-        if "docs.google.com/document" in target:
-            download_urls.append(f"https://docs.google.com/document/d/{drive_id}/export?format=pdf")
-        download_urls.extend([
-            f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0",
-            f"https://drive.google.com/uc?export=download&id={drive_id}",
-        ])
-    else:
-        # Generic URL (e.g. Dropbox dl=1)
-        if "dropbox.com" in target and "?dl=0" in target:
-            target = target.replace("?dl=0", "?dl=1")
-        download_urls.append(target)
+        # 2. Must be an HTTP(S) URL
+        if not target.startswith(("http://", "https://")):
+            return None, None, f"Unsupported link or file path: {target}"
 
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True, headers=headers) as client:
-        for d_url in download_urls:
-            try:
-                res = await client.get(d_url)
-                if res.status_code == 200 and len(res.content) > 100:
-                    content_type = res.headers.get("content-type", "").lower()
-                    # Check for PDF header or content-type
-                    if res.content.startswith(b"%PDF") or "application/pdf" in content_type or "octet-stream" in content_type:
-                        return res.content, filename, None
-                    # Fallback if binary file downloaded
-                    if len(res.content) > 1000 and b"<!DOCTYPE html" not in res.content[:200]:
-                        return res.content, filename, None
-            except Exception:
-                continue
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
 
-    return None, None, "Could not download a valid PDF from the provided link."
+        # 3. Google Drive / Docs handling
+        drive_id = extract_drive_id(target)
+        download_urls = []
+        if drive_id:
+            if "docs.google.com/document" in target:
+                download_urls.append(f"https://docs.google.com/document/d/{drive_id}/export?format=pdf")
+            download_urls.extend([
+                f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0",
+                f"https://drive.google.com/uc?export=download&id={drive_id}",
+            ])
+        else:
+            # Generic URL (e.g. Dropbox dl=1)
+            if "dropbox.com" in target and "?dl=0" in target:
+                target = target.replace("?dl=0", "?dl=1")
+            download_urls.append(target)
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
+            for d_url in download_urls:
+                try:
+                    res = await client.get(d_url)
+                    if res.status_code == 200 and len(res.content) > 100:
+                        content_type = res.headers.get("content-type", "").lower()
+                        # Check for PDF magic bytes (%PDF) or application/pdf header
+                        if res.content.startswith(b"%PDF") or "application/pdf" in content_type or "octet-stream" in content_type:
+                            return res.content, filename, None
+                        # Fallback for binary file if not HTML
+                        if len(res.content) > 1000 and b"<!DOCTYPE html" not in res.content[:200]:
+                            return res.content, filename, None
+                except Exception:
+                    continue
+
+        return None, None, "Could not extract a valid PDF from the link."
+    except Exception as exc:
+        return None, None, f"PDF extraction safely skipped ({exc})"
 
 
 def fetch_pdf_sync(url_or_path: str, user_name: str | None = None) -> tuple[bytes | None, str | None, str | None]:
-    """Synchronous version of fetch_pdf for CLI and stdio servers."""
-    target = (url_or_path or "").strip()
-    if not target:
-        return None, None, "No resume link or file path provided."
-
-    filename = format_pdf_filename(user_name)
-
+    """Synchronous version of fetch_pdf. Guaranteed never to raise or crash."""
     try:
-        local_p = Path(target)
-        if local_p.is_file():
-            content = local_p.read_bytes()
-            if len(content) > 0:
-                return content, local_p.name or filename, None
-    except Exception:
-        pass
+        target = (url_or_path or "").strip()
+        if not target:
+            return None, None, "No resume link or file path provided."
 
-    if not target.startswith(("http://", "https://")):
-        return None, None, f"Unsupported link or file path: {target}"
+        filename = format_pdf_filename(user_name)
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
+        try:
+            local_p = Path(target)
+            if local_p.is_file():
+                content = local_p.read_bytes()
+                if len(content) > 0:
+                    return content, local_p.name or filename, None
+        except Exception:
+            pass
 
-    drive_id = extract_drive_id(target)
-    download_urls = []
-    if drive_id:
-        if "docs.google.com/document" in target:
-            download_urls.append(f"https://docs.google.com/document/d/{drive_id}/export?format=pdf")
-        download_urls.extend([
-            f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0",
-            f"https://drive.google.com/uc?export=download&id={drive_id}",
-        ])
-    else:
-        if "dropbox.com" in target and "?dl=0" in target:
-            target = target.replace("?dl=0", "?dl=1")
-        download_urls.append(target)
+        if not target.startswith(("http://", "https://")):
+            return None, None, f"Unsupported link or file path: {target}"
 
-    with httpx.Client(timeout=20.0, follow_redirects=True, headers=headers) as client:
-        for d_url in download_urls:
-            try:
-                res = client.get(d_url)
-                if res.status_code == 200 and len(res.content) > 100:
-                    content_type = res.headers.get("content-type", "").lower()
-                    if res.content.startswith(b"%PDF") or "application/pdf" in content_type or "octet-stream" in content_type:
-                        return res.content, filename, None
-                    if len(res.content) > 1000 and b"<!DOCTYPE html" not in res.content[:200]:
-                        return res.content, filename, None
-            except Exception:
-                continue
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
 
-    return None, None, "Could not download a valid PDF from the provided link."
+        drive_id = extract_drive_id(target)
+        download_urls = []
+        if drive_id:
+            if "docs.google.com/document" in target:
+                download_urls.append(f"https://docs.google.com/document/d/{drive_id}/export?format=pdf")
+            download_urls.extend([
+                f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0",
+                f"https://drive.google.com/uc?export=download&id={drive_id}",
+            ])
+        else:
+            if "dropbox.com" in target and "?dl=0" in target:
+                target = target.replace("?dl=0", "?dl=1")
+            download_urls.append(target)
+
+        with httpx.Client(timeout=15.0, follow_redirects=True, headers=headers) as client:
+            for d_url in download_urls:
+                try:
+                    res = client.get(d_url)
+                    if res.status_code == 200 and len(res.content) > 100:
+                        content_type = res.headers.get("content-type", "").lower()
+                        if res.content.startswith(b"%PDF") or "application/pdf" in content_type or "octet-stream" in content_type:
+                            return res.content, filename, None
+                        if len(res.content) > 1000 and b"<!DOCTYPE html" not in res.content[:200]:
+                            return res.content, filename, None
+                except Exception:
+                    continue
+
+        return None, None, "Could not extract a valid PDF from the link."
+    except Exception as exc:
+        return None, None, f"PDF extraction safely skipped ({exc})"

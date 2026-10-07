@@ -393,17 +393,26 @@ async def send_application(
                 final_body = append_link(body, wrapped_link, role_of(user))
 
     if should_attach_pdf and target_for_pdf:
-        pdf_bytes, filename, err = await attachments.fetch_pdf(target_for_pdf, identity.get("name"))
-        if pdf_bytes:
-            attachment_bytes = pdf_bytes
-            attachment_filename = filename
-        else:
-            attachment_warning = f"Could not fetch PDF from {target_for_pdf}: {err}"
-            if resume_format == "pdf_only" and resolved_link and not tracked_link:
+        try:
+            pdf_bytes, filename, err = await attachments.fetch_pdf(target_for_pdf, identity.get("name"))
+            if pdf_bytes:
+                attachment_bytes = pdf_bytes
+                attachment_filename = filename
+            else:
+                attachment_warning = f"Could not extract PDF from link ({err})"
+                # Fallback: ensure resume link is in email body if pdf_only was selected
+                if resolved_link and not tracked_link:
+                    track_id, wrapped_link = _tracked(resolved_link)
+                    tracked_link = resolved_link
+                    final_body = append_link(body, wrapped_link, role_of(user))
+                    attachment_warning += "; fallback: resume link included in email body instead"
+        except Exception as exc:
+            attachment_warning = f"PDF fetch safely skipped ({exc})"
+            if resolved_link and not tracked_link:
                 track_id, wrapped_link = _tracked(resolved_link)
                 tracked_link = resolved_link
                 final_body = append_link(body, wrapped_link, role_of(user))
-                attachment_warning += " (included link in body as fallback)"
+                attachment_warning += "; fallback: resume link included in email body instead"
 
     result = gmail.send(
         access_token,
@@ -557,19 +566,27 @@ async def send_applications(
                     final_body = append_link(application.body, wrapped_link, role)
 
         if should_attach_pdf and target_for_pdf:
-            if target_for_pdf not in pdf_cache:
-                pdf_cache[target_for_pdf] = await attachments.fetch_pdf(target_for_pdf, identity.get("name"))
-            pdf_bytes, filename, err = pdf_cache[target_for_pdf]
-            if pdf_bytes:
-                attachment_bytes = pdf_bytes
-                attachment_filename = filename
-            else:
-                attachment_warning = f"Could not fetch PDF: {err}"
+            try:
+                if target_for_pdf not in pdf_cache:
+                    pdf_cache[target_for_pdf] = await attachments.fetch_pdf(target_for_pdf, identity.get("name"))
+                pdf_bytes, filename, err = pdf_cache[target_for_pdf]
+                if pdf_bytes:
+                    attachment_bytes = pdf_bytes
+                    attachment_filename = filename
+                else:
+                    attachment_warning = f"Could not extract PDF from link ({err})"
+                    if app_resume_format == "pdf_only" and resolved_link and not tracked_link:
+                        track_id, wrapped_link = _tracked(resolved_link)
+                        tracked_link = resolved_link
+                        final_body = append_link(application.body, wrapped_link, role)
+                        attachment_warning += "; fallback: resume link included in email body instead"
+            except Exception as exc:
+                attachment_warning = f"PDF fetch safely skipped ({exc})"
                 if app_resume_format == "pdf_only" and resolved_link and not tracked_link:
                     track_id, wrapped_link = _tracked(resolved_link)
                     tracked_link = resolved_link
                     final_body = append_link(application.body, wrapped_link, role)
-                    attachment_warning += " (included link in body as fallback)"
+                    attachment_warning += "; fallback: resume link included in email body instead"
 
         result = gmail.send(
             access_token,
