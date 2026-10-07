@@ -42,7 +42,7 @@ async def fetch_identity(access_token):
     }
 
 
-def build_message(to, subject, body, sender, cc=None):
+def build_message(to, subject, body, sender, cc=None, attachment_bytes=None, attachment_filename=None):
     message = EmailMessage()
     message["To"] = to
     message["Subject"] = subject
@@ -75,15 +75,31 @@ def build_message(to, subject, body, sender, cc=None):
     else:
         message.set_content(body)
 
+    if attachment_bytes:
+        filename = attachment_filename or "Resume.pdf"
+        message.add_attachment(
+            attachment_bytes,
+            maintype="application",
+            subtype="pdf",
+            filename=filename,
+        )
     
     return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
 
 
-def send(access_token, to, subject, body, sender=None, cc=None):
+def send(access_token, to, subject, body, sender=None, cc=None, attachment_bytes=None, attachment_filename=None):
     """Send one email. Failures come back as data so one bad row in a batch
     does not abort the rest."""
     try:
-        payload = build_message(to, subject, body, sender, cc)
+        payload = build_message(
+            to,
+            subject,
+            body,
+            sender,
+            cc,
+            attachment_bytes=attachment_bytes,
+            attachment_filename=attachment_filename,
+        )
         sent = (
             service_for(access_token)
             .users()

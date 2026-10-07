@@ -8,7 +8,7 @@ import asyncio
 import re
 import secrets
 
-from . import config, gmail, signals, storage, verify
+from . import attachments, config, gmail, signals, storage, verify
 from .app import mcp
 from .identity import current_user
 from .models import Application, Candidate
@@ -323,6 +323,9 @@ async def send_application(
     source_url: str | None = None,
     include_link: bool = True,
     link_name: str | None = None,
+    attach_pdf: bool = True,
+    resume_format: str = "both",
+    pdf_path: str | None = None,
 ) -> dict:
     """Send ONE email from the user's Gmail. Irreversible.
 
@@ -330,9 +333,12 @@ async def send_application(
     application, a meeting request, a follow-up, a greeting. For a job seeker
     it refuses until a resume link is saved; other roles have no such gate.
 
-    The user's saved link is appended by default. Pass include_link=false for
-    general messages where it does not belong. If multiple links are saved,
-    pass `link_name` to choose which one to attach for this send.
+    Resume format options:
+    - `resume_format="both"` (default): includes the Drive link in the email body AND attaches the resume as a PDF file.
+    - `resume_format="link_only"`: only includes the Drive link in the body (no file attachment).
+    - `resume_format="pdf_only"`: attaches the resume as a PDF file without appending the Drive link text.
+
+    If attach_pdf is True and resume_format in ("both", "pdf_only"), Setu automatically fetches the PDF from the user's saved Google Drive link (or optional `pdf_path`) and attaches it as a PDF (e.g. Resume_Himanshu_Yadav.pdf).
     """
     access_token, identity = await current_user()
     sub = identity["sub"]
@@ -365,14 +371,39 @@ async def send_application(
     track_id = None
     resolved_link_name = None
     final_body = body
-    if include_link:
+    attachment_bytes = None
+    attachment_filename = None
+    attachment_warning = None
+
+    should_attach_pdf = attach_pdf and (resume_format in ("both", "pdf_only"))
+    should_include_link = include_link and (resume_format in ("both", "link_only"))
+
+    target_for_pdf = pdf_path
+    resolved_link = None
+    if should_attach_pdf or should_include_link:
         resolved_link, resolved_link_name, problem = _resolve_link(user, sub, link_name)
         if problem:
             return {"success": False, "to": to, "error": problem, "needs": "link_name"}
         if resolved_link:
-            track_id, wrapped_link = _tracked(resolved_link)
-            tracked_link = resolved_link
-            final_body = append_link(body, wrapped_link, role_of(user))
+            if not target_for_pdf:
+                target_for_pdf = resolved_link
+            if should_include_link:
+                track_id, wrapped_link = _tracked(resolved_link)
+                tracked_link = resolved_link
+                final_body = append_link(body, wrapped_link, role_of(user))
+
+    if should_attach_pdf and target_for_pdf:
+        pdf_bytes, filename, err = await attachments.fetch_pdf(target_for_pdf, identity.get("name"))
+        if pdf_bytes:
+            attachment_bytes = pdf_bytes
+            attachment_filename = filename
+        else:
+            attachment_warning = f"Could not fetch PDF from {target_for_pdf}: {err}"
+            if resume_format == "pdf_only" and resolved_link and not tracked_link:
+                track_id, wrapped_link = _tracked(resolved_link)
+                tracked_link = resolved_link
+                final_body = append_link(body, wrapped_link, role_of(user))
+                attachment_warning += " (included link in body as fallback)"
 
     result = gmail.send(
         access_token,
@@ -380,6 +411,8 @@ async def send_application(
         subject,
         final_body,
         sender=identity["email"],
+        attachment_bytes=attachment_bytes,
+        attachment_filename=attachment_filename,
     )
     result.update(
         company=company,
@@ -387,7 +420,11 @@ async def send_application(
         track_id=track_id,
         tracked_link=tracked_link,
         link_name=resolved_link_name,
+        attached_pdf=bool(attachment_bytes),
+        pdf_filename=attachment_filename if attachment_bytes else None,
     )
+    if attachment_warning:
+        result["attachment_warning"] = attachment_warning
     storage.record_sends(identity["sub"], [result])
     return result
 
@@ -397,12 +434,19 @@ async def send_applications(
     applications: list[Application],
     delay_seconds: int | None = None,
     include_link: bool = True,
+    attach_pdf: bool = True,
+    resume_format: str = "both",
 ) -> dict:
     """Send a batch of emails, pausing between each. Irreversible.
 
     Works for any kind of email, not only applications. Pass include_link=false
     to leave the user's saved link off every message in the batch. If multiple
     links are saved, each application can name its own `link_name`.
+
+    Resume format options:
+    - `resume_format="both"` (default): includes the Drive link in the email body AND attaches the resume as a PDF file.
+    - `resume_format="link_only"`: only includes the Drive link in the body.
+    - `resume_format="pdf_only"`: attaches the resume as a PDF file without appending the Drive link text.
     """
     if not applications:
         return {"success": False, "error": "No applications provided."}
@@ -456,6 +500,8 @@ async def send_applications(
     role = role_of(user)
 
     sent, skipped = [], []
+    pdf_cache = {}
+
     for application in applications:
         if config.VERIFY_HR_EMAILS:
             check = verdict.get(application.to, {})
@@ -484,7 +530,19 @@ async def send_applications(
         track_id = None
         resolved_link_name = None
         final_body = application.body
-        if include_link:
+        attachment_bytes = None
+        attachment_filename = None
+        attachment_warning = None
+
+        app_attach_pdf = application.attach_pdf if application.attach_pdf is not None else attach_pdf
+        app_resume_format = application.resume_format if application.resume_format is not None else resume_format
+
+        should_attach_pdf = app_attach_pdf and (app_resume_format in ("both", "pdf_only"))
+        should_include_link = include_link and (app_resume_format in ("both", "link_only"))
+
+        target_for_pdf = None
+        resolved_link = None
+        if should_attach_pdf or should_include_link:
             resolved_link, resolved_link_name, problem = _resolve_link(
                 user, sub, application.link_name
             )
@@ -492,9 +550,26 @@ async def send_applications(
                 skipped.append({"to": application.to, "reason": problem})
                 continue
             if resolved_link:
-                track_id, wrapped_link = _tracked(resolved_link)
-                tracked_link = resolved_link
-                final_body = append_link(application.body, wrapped_link, role)
+                target_for_pdf = resolved_link
+                if should_include_link:
+                    track_id, wrapped_link = _tracked(resolved_link)
+                    tracked_link = resolved_link
+                    final_body = append_link(application.body, wrapped_link, role)
+
+        if should_attach_pdf and target_for_pdf:
+            if target_for_pdf not in pdf_cache:
+                pdf_cache[target_for_pdf] = await attachments.fetch_pdf(target_for_pdf, identity.get("name"))
+            pdf_bytes, filename, err = pdf_cache[target_for_pdf]
+            if pdf_bytes:
+                attachment_bytes = pdf_bytes
+                attachment_filename = filename
+            else:
+                attachment_warning = f"Could not fetch PDF: {err}"
+                if app_resume_format == "pdf_only" and resolved_link and not tracked_link:
+                    track_id, wrapped_link = _tracked(resolved_link)
+                    tracked_link = resolved_link
+                    final_body = append_link(application.body, wrapped_link, role)
+                    attachment_warning += " (included link in body as fallback)"
 
         result = gmail.send(
             access_token,
@@ -502,6 +577,8 @@ async def send_applications(
             application.subject,
             final_body,
             sender=identity["email"],
+            attachment_bytes=attachment_bytes,
+            attachment_filename=attachment_filename,
         )
         result.update(
             company=application.company,
@@ -509,7 +586,11 @@ async def send_applications(
             track_id=track_id,
             tracked_link=tracked_link,
             link_name=resolved_link_name,
+            attached_pdf=bool(attachment_bytes),
+            pdf_filename=attachment_filename if attachment_bytes else None,
         )
+        if attachment_warning:
+            result["attachment_warning"] = attachment_warning
         sent.append(result)
 
         if pause and len(sent) < len(applications):

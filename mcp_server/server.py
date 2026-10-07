@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 from core import config, gmail_auth, sent_log  # noqa: E402
 from core.email_sender import EmailSender  # noqa: E402
 from core.sheets_reader import SheetsReader  # noqa: E402
+from remote.attachments import fetch_pdf_sync  # noqa: E402
 
 try:  # The SDK renamed FastMCP to MCPServer; support both.
     from mcp.server.mcpserver import MCPServer
@@ -36,6 +37,8 @@ class OutgoingEmail(BaseModel):
     to: str = Field(description="Recipient email address")
     subject: str = Field(description="Subject line")
     body: str = Field(description="Plain text body, already personalized")
+    attach_pdf: bool | None = Field(default=None, description="Whether to attach the resume as a PDF file")
+    pdf_path: str | None = Field(default=None, description="Optional custom link or path for the PDF")
 
 
 def _sender():
@@ -103,24 +106,56 @@ def check_already_contacted(emails: list[str]) -> dict:
 
 
 @mcp.tool()
-def send_email(to: str, subject: str, body: str, cc: str | None = None) -> dict:
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str | None = None,
+    attach_pdf: bool = True,
+    resume_format: str = "both",
+    pdf_path: str | None = None,
+) -> dict:
     """Send ONE email immediately from the user's Gmail.
 
     This is irreversible — the mail is delivered as soon as this returns. Show
     the user the exact subject and body and get their approval before calling
     this for the first time in a conversation.
+
+    Resume format options:
+    - resume_format="both" (default): sends email with link in body AND attaches the resume as a PDF file.
+    - resume_format="link_only": only sends with link in body (no PDF attachment).
+    - resume_format="pdf_only": attaches the resume as a PDF file.
     """
     problem = _profile_problems()
     if problem:
         return {"success": False, "error": problem}
 
+    attachment_bytes = None
+    attachment_filename = None
+    if attach_pdf and resume_format in ("both", "pdf_only"):
+        target = pdf_path or config.resume_link()
+        if target:
+            pdf_bytes, filename, _ = fetch_pdf_sync(target, config.your_name())
+            if pdf_bytes:
+                attachment_bytes = pdf_bytes
+                attachment_filename = filename
+
     try:
-        result = _sender().send(to, subject, body, cc)
+        result = _sender().send(
+            to,
+            subject,
+            body,
+            cc,
+            attachment_bytes=attachment_bytes,
+            attachment_filename=attachment_filename,
+        )
     except Exception as exc:
-        # Return the failure as data. Raising here would surface to Claude as an
-        # opaque tool crash instead of something the user can act on.
         return {"success": False, "to": to, "error": str(exc)}
 
+    result.update(
+        attached_pdf=bool(attachment_bytes),
+        pdf_filename=attachment_filename if attachment_bytes else None,
+    )
     sent_log.record([result])
     return result
 
@@ -129,15 +164,13 @@ def send_email(to: str, subject: str, body: str, cc: str | None = None) -> dict:
 def send_bulk_emails(
     emails: list[OutgoingEmail],
     delay_seconds: int | None = None,
+    attach_pdf: bool = True,
+    resume_format: str = "both",
 ) -> dict:
     """Send a batch of already-written emails, pausing between each one.
 
     Irreversible. Show the user the full list of recipients and at least one
     complete sample body, and get explicit approval, before calling this.
-
-    Each email should already be personalized — pass one entry per recipient
-    rather than the same body to everyone. The pause keeps Gmail from treating
-    the run as spam; it defaults to EMAIL_DELAY from .env.
     """
     problem = _profile_problems()
     if problem:
@@ -162,9 +195,35 @@ def send_bulk_emails(
 
     pause = config.email_delay() if delay_seconds is None else max(0, delay_seconds)
 
+    pdf_cache = {}
     results = []
     for index, email in enumerate(emails):
-        results.append(sender.send(email.to, email.subject, email.body))
+        attachment_bytes = None
+        attachment_filename = None
+
+        should_attach = email.attach_pdf if email.attach_pdf is not None else attach_pdf
+        if should_attach and resume_format in ("both", "pdf_only"):
+            target = email.pdf_path or config.resume_link()
+            if target:
+                if target not in pdf_cache:
+                    pdf_cache[target] = fetch_pdf_sync(target, config.your_name())
+                p_bytes, f_name, _ = pdf_cache[target]
+                if p_bytes:
+                    attachment_bytes = p_bytes
+                    attachment_filename = f_name
+
+        res = sender.send(
+            email.to,
+            email.subject,
+            email.body,
+            attachment_bytes=attachment_bytes,
+            attachment_filename=attachment_filename,
+        )
+        res.update(
+            attached_pdf=bool(attachment_bytes),
+            pdf_filename=attachment_filename if attachment_bytes else None,
+        )
+        results.append(res)
         if index < len(emails) - 1 and pause:
             time.sleep(pause)
 

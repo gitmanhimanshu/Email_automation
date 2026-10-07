@@ -23,3 +23,12 @@ class Application(BaseModel):
     source_url: str | None = Field(
         default=None, description="Page URL where the address was found"
     )
+    link_name: str | None = Field(
+        default=None, description="Optional named link to attach for this email"
+    )
+    attach_pdf: bool | None = Field(
+        default=None, description="Whether to attach the resume as a PDF file"
+    )
+    resume_format: str | None = Field(
+        default=None, description="'both' | 'link_only' | 'pdf_only'"
+    )

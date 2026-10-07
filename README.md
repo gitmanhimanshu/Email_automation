@@ -37,8 +37,8 @@ Setu serves three roles, and the role changes what a good email looks like:
 | `set_role` | `job_seeker` \| `recruiter` \| `professional`. Asked, never inferred. |
 | `save_link` | Saves the URL appended to emails. Fetched and validated before saving. |
 | `verify_hr_emails` | MX-record + citation check for addresses the model found. Advisory by default. |
-| `send_application` | Sends one email. Irreversible; shown to the user first. `include_link=false` skips the link. |
-| `send_applications` | Batch send (max 25), paced. Same rules per email. |
+| `send_application` | Sends one email. Irreversible; shown to the user first. Supports `resume_format="both"` (Drive link in body + attached PDF), `"link_only"`, or `"pdf_only"`. |
+| `send_applications` | Batch send (max 25), paced with automated PDF caching and attachment. Same rules per email. |
 | `get_sent_history` | Everything already sent — what makes duplicate prevention possible. |
 | `get_my_stats` | The user's numbers at a glance — totals, companies reached, failures, quota, plan — for "show my stats". |
 
