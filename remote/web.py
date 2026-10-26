@@ -461,6 +461,51 @@ async def api_link_default(request):
     return JSONResponse({"success": True, **_links_payload(identity["sub"], user)}, headers=cors)
 
 
+@mcp.custom_route("/api/profile/metadata", methods=["GET", "POST", "PATCH", "OPTIONS"])
+@mcp.custom_route("/api/user/metadata", methods=["GET", "POST", "PATCH", "OPTIONS"])
+async def api_profile_metadata(request):
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+    }
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+
+    if request.method == "GET":
+        metadata = storage.get_user_metadata(sub)
+        return JSONResponse({"success": True, "metadata": metadata}, headers=cors)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object of key-value pairs"},
+            status_code=400,
+            headers=cors,
+        )
+
+    updated = storage.set_user_metadata(sub, payload, merge=True)
+    return JSONResponse(
+        {
+            "success": True,
+            "message": f"Updated {len(payload)} profile field(s)",
+            "metadata": updated,
+        },
+        headers=cors,
+    )
+
+
 @mcp.custom_route("/api/stats", methods=["GET", "OPTIONS"])
 async def api_stats(request):
     cors = {
@@ -525,6 +570,7 @@ async def api_stats(request):
             "default_link_name": user.get("default_link_name"),
             "links": storage.list_links(sub),
             "link_label": config.ROLES.get(role, {}).get("link_label"),
+            "metadata": user.get("metadata") or {},
             "plan": plan,
             "subscribed_at": user.get("subscribed_at"),
             "subscription_ends_at": user.get("subscription_ends_at"),

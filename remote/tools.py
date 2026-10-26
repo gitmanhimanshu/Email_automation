@@ -87,6 +87,9 @@ async def get_my_profile() -> dict:
         "link_label": spec.get("link_label"),
         "link_saved": bool(user.get("link")),
         "link_required": spec.get("link_required", False),
+        "metadata": user.get("metadata") or {},
+        "city": (user.get("metadata") or {}).get("city"),
+        "expected_ctc": (user.get("metadata") or {}).get("expected_ctc"),
         "plan": plan,
         "subscribed_at": user.get("subscribed_at"),
         "subscription_ends_at": user.get("subscription_ends_at"),
@@ -99,6 +102,32 @@ async def get_my_profile() -> dict:
         "max_per_batch": config.MAX_PER_BATCH,
         "dashboard_url": config.DASHBOARD_URL,
         "setup_needed": link_problem(user) or plan_problem(user, sub),
+    }
+
+
+@mcp.tool
+async def set_profile_info(details: dict) -> dict:
+    """Save or update candidate/user profile details as key-value pairs.
+
+    Use this to store details like city, expected_ctc, current_ctc,
+    notice_period, experience, phone, skills, preferred_location, or any
+    custom key-value pairs that help personalize outreach emails and applications.
+
+    Args:
+        details: A key-value dictionary of profile fields, e.g.
+                 {"city": "Bangalore", "expected_ctc": "25 LPA", "notice_period": "30 days"}
+    """
+    if not isinstance(details, dict):
+        return {"success": False, "error": "details must be a JSON object / key-value dictionary"}
+
+    _, identity = await current_user()
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+    updated = storage.set_user_metadata(sub, details, merge=True)
+    return {
+        "success": True,
+        "message": f"Updated profile details ({', '.join(details.keys())})",
+        "metadata": updated,
     }
 
 

@@ -6,6 +6,7 @@ Runs on Postgres (set DATABASE_URL - Neon, Supabase, Railway PG) or on SQLite
 Deliberately stores no Google tokens. The OAuth proxy hands us a fresh access
 token on every request, so there is nothing here worth stealing.
 """
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
     plan         TEXT NOT NULL DEFAULT 'free',
     subscribed_at        TEXT,
     subscription_ends_at TEXT,
+    metadata     TEXT,
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -87,6 +89,7 @@ CREATE TABLE IF NOT EXISTS users (
     plan         TEXT NOT NULL DEFAULT 'free',
     subscribed_at        TEXT,
     subscription_ends_at TEXT,
+    metadata     TEXT,
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -201,6 +204,7 @@ MIGRATIONS = [
     ("users", "plan", "TEXT NOT NULL DEFAULT 'free'"),
     ("users", "subscribed_at", "TEXT"),
     ("users", "subscription_ends_at", "TEXT"),
+    ("users", "metadata", "TEXT"),
     # Link-open tracking: the appended link is served as /r/{track_id}, and
     # opens are counted on the send row itself.
     ("sends", "track_id", "TEXT"),
@@ -313,7 +317,49 @@ def upsert_user(google_sub, email, name=None):
 
 def get_user(google_sub):
     with _db() as conn:
-        return _one(conn, "SELECT * FROM users WHERE google_sub = ?", (google_sub,))
+        row = _one(conn, "SELECT * FROM users WHERE google_sub = ?", (google_sub,))
+    if row:
+        raw_meta = row.get("metadata")
+        if isinstance(raw_meta, str) and raw_meta.strip():
+            try:
+                row["metadata"] = json.loads(raw_meta)
+            except Exception:
+                row["metadata"] = {}
+        elif not isinstance(raw_meta, dict):
+            row["metadata"] = {}
+    return row
+
+
+def set_user_metadata(google_sub, metadata, merge=True):
+    """Save key-value profile information (city, expected_ctc, notice_period, etc.)."""
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata must be a dictionary / key-value object")
+
+    with _db() as conn:
+        current = {}
+        if merge:
+            row = _one(conn, "SELECT metadata FROM users WHERE google_sub = ?", (google_sub,))
+            if row and row.get("metadata"):
+                raw = row["metadata"]
+                if isinstance(raw, str) and raw.strip():
+                    try:
+                        current = json.loads(raw)
+                    except Exception:
+                        current = {}
+                elif isinstance(raw, dict):
+                    current = raw
+        current.update(metadata)
+        json_str = json.dumps(current, ensure_ascii=False)
+        conn.execute(
+            _sql("UPDATE users SET metadata = ?, updated_at = ? WHERE google_sub = ?"),
+            (json_str, _now(), google_sub),
+        )
+        return current
+
+
+def get_user_metadata(google_sub):
+    user = get_user(google_sub)
+    return (user.get("metadata") or {}) if user else {}
 
 # --- Saved Links ---
 
