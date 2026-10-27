@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS users (
     name         TEXT,
     role         TEXT,
     link         TEXT,
+    linkedin_url TEXT,
+    github_url   TEXT,
+    reason_for_job_change TEXT,
+    extra_data   TEXT,
     plan         TEXT NOT NULL DEFAULT 'free',
     subscribed_at        TEXT,
     subscription_ends_at TEXT,
@@ -86,6 +90,10 @@ CREATE TABLE IF NOT EXISTS users (
     name         TEXT,
     role         TEXT,
     link         TEXT,
+    linkedin_url TEXT,
+    github_url   TEXT,
+    reason_for_job_change TEXT,
+    extra_data   TEXT,
     plan         TEXT NOT NULL DEFAULT 'free',
     subscribed_at        TEXT,
     subscription_ends_at TEXT,
@@ -200,6 +208,10 @@ def _one(conn, query, params=()):
 MIGRATIONS = [
     ("users", "role", "TEXT"),
     ("users", "link", "TEXT"),
+    ("users", "linkedin_url", "TEXT"),
+    ("users", "github_url", "TEXT"),
+    ("users", "reason_for_job_change", "TEXT"),
+    ("users", "extra_data", "TEXT"),
     ("users", "default_link_name", "TEXT"),
     ("users", "plan", "TEXT NOT NULL DEFAULT 'free'"),
     ("users", "subscribed_at", "TEXT"),
@@ -360,6 +372,34 @@ def set_user_metadata(google_sub, metadata, merge=True):
 def get_user_metadata(google_sub):
     user = get_user(google_sub)
     return (user.get("metadata") or {}) if user else {}
+
+
+def update_user_profile(google_sub, **fields):
+    """Update arbitrary profile columns for a user.
+
+    Recognised keys: linkedin_url, github_url, reason_for_job_change, extra_data.
+    """
+    import json
+    allowed = {"linkedin_url", "github_url", "reason_for_job_change", "extra_data"}
+    to_update = {k: v for k, v in fields.items() if k in allowed}
+    if not to_update:
+        return
+    if "extra_data" in to_update:
+        val = to_update["extra_data"]
+        if isinstance(val, (dict, list)):
+            to_update["extra_data"] = json.dumps(val)
+        elif val is not None and not isinstance(val, str):
+            to_update["extra_data"] = json.dumps(val)
+
+    set_clauses = [f"{col} = ?" for col in to_update.keys()]
+    set_clauses.append("updated_at = ?")
+    params = list(to_update.values()) + [_now(), google_sub]
+
+    with _db() as conn:
+        conn.execute(
+            _sql(f"UPDATE users SET {', '.join(set_clauses)} WHERE google_sub = ?"),
+            params,
+        )
 
 # --- Saved Links ---
 
@@ -926,16 +966,18 @@ def admin_list_users():
         return _rows(
             conn,
             """
-            SELECT u.google_sub, u.email, u.name, u.role, u.link, u.plan,
-                   u.subscribed_at, u.subscription_ends_at, u.created_at,
+            SELECT u.google_sub, u.email, u.name, u.role, u.link,
+                   u.linkedin_url, u.github_url, u.reason_for_job_change, u.extra_data,
+                   u.plan, u.subscribed_at, u.subscription_ends_at, u.created_at,
                    COALESCE(SUM(CASE WHEN s.success = 1 THEN 1 ELSE 0 END), 0) AS sent,
                    COALESCE(SUM(CASE WHEN s.success = 0 THEN 1 ELSE 0 END), 0) AS failed,
                    COALESCE(SUM(CASE WHEN s.success = 1 AND s.sent_at >= ? THEN 1 ELSE 0 END), 0) AS sent_today,
                    MAX(s.sent_at) AS last_sent_at
             FROM users u
             LEFT JOIN sends s ON s.google_sub = u.google_sub
-            GROUP BY u.google_sub, u.email, u.name, u.role, u.link, u.plan,
-                     u.subscribed_at, u.subscription_ends_at, u.created_at
+            GROUP BY u.google_sub, u.email, u.name, u.role, u.link,
+                     u.linkedin_url, u.github_url, u.reason_for_job_change, u.extra_data,
+                     u.plan, u.subscribed_at, u.subscription_ends_at, u.created_at
             ORDER BY sent DESC, u.created_at DESC
             """,
             (today_start,),

@@ -5,6 +5,7 @@ written as instructions to it. The rules the model must not be able to talk
 its way around (limits, gates) live in rules.py and storage.py, not here.
 """
 import asyncio
+import json
 import re
 import secrets
 
@@ -56,12 +57,24 @@ def _clean_or_error(name):
     )
 
 
+def _parse_extra_data(raw):
+    if not raw:
+        return {}
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"raw": str(raw)}
+
+
 @mcp.tool
 async def get_my_profile() -> dict:
-    """Who the signed-in user is, their role, saved link, plan, and quota.
+    """Who the signed-in user is, their role, links, profiles, plan, and quota.
 
     Call this first. Emails go out from this Gmail account, so the content must
-    match this person - and the role decides what kind of email makes sense.
+    match this person - including LinkedIn/GitHub URLs and reason for job change
+    to personalize applications.
     """
     _, identity = await current_user()
     sub = identity["sub"]
@@ -90,6 +103,10 @@ async def get_my_profile() -> dict:
         "metadata": user.get("metadata") or {},
         "city": (user.get("metadata") or {}).get("city"),
         "expected_ctc": (user.get("metadata") or {}).get("expected_ctc"),
+        "linkedin_url": user.get("linkedin_url"),
+        "github_url": user.get("github_url"),
+        "reason_for_job_change": user.get("reason_for_job_change"),
+        "extra_data": _parse_extra_data(user.get("extra_data")),
         "plan": plan,
         "subscribed_at": user.get("subscribed_at"),
         "subscription_ends_at": user.get("subscription_ends_at"),
@@ -128,6 +145,55 @@ async def set_profile_info(details: dict) -> dict:
         "success": True,
         "message": f"Updated profile details ({', '.join(details.keys())})",
         "metadata": updated,
+    }
+
+
+@mcp.tool
+async def update_profile(
+    linkedin_url: str | None = None,
+    github_url: str | None = None,
+    reason_for_job_change: str | None = None,
+    extra_data: dict | None = None,
+) -> dict:
+    """Update profile details: LinkedIn URL, GitHub URL, reason for job change, or extra data.
+
+    Call this when the user shares their LinkedIn profile, GitHub link, reason for switching jobs,
+    or additional metadata/preferences to include in their outreach context.
+    """
+    _, identity = await current_user()
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+
+    to_update = {}
+    if linkedin_url is not None:
+        cleaned = linkedin_url.strip()
+        if cleaned and not cleaned.lower().startswith(("http://", "https://")):
+            return {"success": False, "error": "LinkedIn URL must start with http:// or https://"}
+        to_update["linkedin_url"] = cleaned or None
+
+    if github_url is not None:
+        cleaned = github_url.strip()
+        if cleaned and not cleaned.lower().startswith(("http://", "https://")):
+            return {"success": False, "error": "GitHub URL must start with http:// or https://"}
+        to_update["github_url"] = cleaned or None
+
+    if reason_for_job_change is not None:
+        to_update["reason_for_job_change"] = reason_for_job_change.strip() or None
+
+    if extra_data is not None:
+        to_update["extra_data"] = extra_data
+
+    if to_update:
+        storage.update_user_profile(sub, **to_update)
+
+    user = storage.get_user(sub) or {}
+    return {
+        "success": True,
+        "linkedin_url": user.get("linkedin_url"),
+        "github_url": user.get("github_url"),
+        "reason_for_job_change": user.get("reason_for_job_change"),
+        "extra_data": _parse_extra_data(user.get("extra_data")),
+    }
     }
 
 

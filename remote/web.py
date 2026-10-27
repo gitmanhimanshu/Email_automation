@@ -5,13 +5,14 @@ CORS is open (`*`) on purpose - every authenticated route here takes an
 explicit Authorization header and never cookies, so origin adds no security.
 """
 import ipaddress
+import json
 import re
 import secrets
 import time
 from collections import deque
 from datetime import datetime, timezone
 
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from . import config, geo, gmail, storage, verify
 from .app import mcp
@@ -100,6 +101,17 @@ def _links_payload(sub, user):
     }
 
 
+def _parse_extra_data(raw):
+    if not raw:
+        return {}
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"raw": str(raw)}
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request):
     try:
@@ -131,18 +143,257 @@ def _is_prefetch(sent_at):
     return (datetime.now(timezone.utc) - sent).total_seconds() < _PREFETCH_GRACE_SECONDS
 
 
+def render_expired_link_page(
+    title="Link Expired or Unavailable",
+    message="This tracking link has expired or is no longer active.",
+    subtext="Please check your original email for the candidate's attached resume, or reply directly to their email to request an updated copy.",
+    status_code=404,
+):
+    home_url = config.DASHBOARD_URL.replace("/dashboard", "")
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title} — Setu</title>
+  <style>
+    :root {{
+      --plane: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #f1f5f9;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --border: rgba(15, 23, 42, 0.08);
+      --border-strong: rgba(15, 23, 42, 0.16);
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-glow: rgba(37, 99, 235, 0.12);
+      --warning: #d97706;
+      --warning-bg: rgba(245, 158, 11, 0.08);
+      --warning-border: rgba(245, 158, 11, 0.25);
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --plane: #090d16;
+        --surface: #111827;
+        --surface-2: #1e293b;
+        --text-primary: #f8fafc;
+        --text-secondary: #cbd5e1;
+        --text-muted: #64748b;
+        --border: rgba(255, 255, 255, 0.1);
+        --border-strong: rgba(255, 255, 255, 0.18);
+        --accent: #3b82f6;
+        --accent-hover: #60a5fa;
+        --accent-glow: rgba(59, 130, 246, 0.2);
+        --warning: #fbbf24;
+        --warning-bg: rgba(251, 191, 36, 0.1);
+        --warning-border: rgba(251, 191, 36, 0.25);
+      }}
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--plane);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      line-height: 1.5;
+    }}
+    .container {{
+      max-width: 520px;
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+      padding: 2.5rem 2rem;
+      text-align: center;
+    }}
+    .brand {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.65rem;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 1.2rem;
+      margin-bottom: 1.75rem;
+      letter-spacing: -0.02em;
+    }}
+    .logo-badge {{
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--accent-glow);
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+    }}
+    .tagline {{
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }}
+    .status-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: var(--warning);
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.35rem 0.8rem;
+      border-radius: 9999px;
+      margin-bottom: 1.25rem;
+    }}
+    h1 {{
+      font-size: 1.55rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      margin-bottom: 0.75rem;
+      color: var(--text-primary);
+    }}
+    .message {{
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+    }}
+    .notice-card {{
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      text-align: left;
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.75rem;
+      line-height: 1.6;
+    }}
+    .notice-card strong {{
+      color: var(--text-primary);
+      display: block;
+      margin-bottom: 0.4rem;
+      font-size: 0.92rem;
+    }}
+    .btn {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      background: var(--accent);
+      color: #ffffff;
+      font-weight: 600;
+      font-size: 0.92rem;
+      padding: 0.85rem 1.25rem;
+      border-radius: 12px;
+      text-decoration: none;
+      transition: background 0.15s ease;
+    }}
+    .btn:hover {{
+      background: var(--accent-hover);
+    }}
+    .footer {{
+      margin-top: 1.75rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }}
+    .footer a {{
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 500;
+    }}
+    .footer a:hover {{
+      text-decoration: underline;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="{home_url}" class="brand">
+      <div class="logo-badge">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);">
+          <path d="M4 19c4-6 12-6 16 0"/>
+          <path d="M6 15l2-3"/>
+          <path d="M16 12l2 3"/>
+          <circle cx="12" cy="7" r="3"/>
+        </svg>
+      </div>
+      <div style="text-align: left;">
+        <div>Setu <span style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted);">(सेतु)</span></div>
+        <div class="tagline">Bridge AI to Opportunity</div>
+      </div>
+    </a>
+
+    <div>
+      <span class="status-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        Link Expired / समाप्त लिंक
+      </span>
+    </div>
+
+    <h1>{title}</h1>
+    <p class="message">{message}</p>
+
+    <div class="notice-card">
+      <strong>Next Steps / आगे क्या करें:</strong>
+      <p>{subtext}</p>
+      <p style="margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.75rem; font-size: 0.82rem; color: var(--text-muted);">
+        All emails sent via Setu come directly from the sender's own Gmail. When you click <em>Reply</em> in your email client, your message reaches their personal inbox directly.
+      </p>
+    </div>
+
+    <a href="{home_url}" class="btn">
+      Visit Setu Platform
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12"/>
+        <polyline points="12 5 19 12 12 19"/>
+      </svg>
+    </a>
+
+    <p class="footer">
+      Delivered by <a href="{home_url}">Setu</a> · Verified direct Gmail sending
+    </p>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html, status_code=status_code)
+
+
 @mcp.custom_route("/r/{track_id}", methods=["GET"])
 async def tracked_link(request):
     track_id = request.path_params.get("track_id")
     url, sent_at = storage.lookup_tracked(track_id)
     if not url:
-        return JSONResponse({"error": "unknown tracking id"}, status_code=404)
+        return render_expired_link_page(
+            title="Link Expired or Unavailable",
+            message="This tracking link has expired or is no longer active.",
+            subtext="Please check your original email for the candidate's attached resume, or reply directly to their email to request an updated copy.",
+            status_code=404,
+        )
 
     # Defence in depth: saving a link already requires http(s), but this route
     # emits a redirect to whatever is stored, so never let it emit a scheme a
     # browser would execute (javascript:, data:).
     if not url.lower().startswith(("http://", "https://")):
-        return JSONResponse({"error": "unsupported link"}, status_code=400)
+        return render_expired_link_page(
+            title="Unsupported Link Format",
+            message="This link does not point to a supported web URL.",
+            subtext="Please check your original email for the resume or reply directly to the sender.",
+            status_code=400,
+        )
 
     user_agent = request.headers.get("user-agent", "")
     if not _BOT_UA_RE.search(user_agent) and not _is_prefetch(sent_at):
@@ -161,7 +412,12 @@ async def serve_file(request):
     signed in, so the unguessable id is the only credential."""
     found = storage.read_file(request.path_params.get("file_id", ""))
     if not found:
-        return JSONResponse({"error": "file not found"}, status_code=404)
+        return render_expired_link_page(
+            title="File Expired or Not Found",
+            message="This uploaded document is no longer available.",
+            subtext="Please check the original email for the attached resume or contact the sender directly.",
+            status_code=404,
+        )
 
     data, filename, content_type = found
 
@@ -571,6 +827,10 @@ async def api_stats(request):
             "links": storage.list_links(sub),
             "link_label": config.ROLES.get(role, {}).get("link_label"),
             "metadata": user.get("metadata") or {},
+            "linkedin_url": user.get("linkedin_url"),
+            "github_url": user.get("github_url"),
+            "reason_for_job_change": user.get("reason_for_job_change"),
+            "extra_data": _parse_extra_data(user.get("extra_data")),
             "plan": plan,
             "subscribed_at": user.get("subscribed_at"),
             "subscription_ends_at": user.get("subscription_ends_at"),
@@ -706,6 +966,90 @@ async def api_company_opens(request):
             "page": page,
             "limit": limit,
             "total_pages": max(1, (total + limit - 1) // limit),
+        },
+        headers=cors,
+    )
+
+
+@mcp.custom_route("/api/profile", methods=["GET", "POST", "OPTIONS"])
+async def api_profile(request):
+    """Get or update profile fields: linkedin_url, github_url, reason_for_job_change, extra_data."""
+    cors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    }
+
+    if request.method == "OPTIONS":
+        return JSONResponse({}, headers=cors)
+
+    identity, denied = await _bearer_identity(request, cors)
+    if denied:
+        return denied
+
+    sub = identity["sub"]
+    storage.upsert_user(sub, identity["email"], identity.get("name"))
+
+    if request.method == "GET":
+        user = storage.get_user(sub) or {}
+        return JSONResponse(
+            {
+                "linkedin_url": user.get("linkedin_url"),
+                "github_url": user.get("github_url"),
+                "reason_for_job_change": user.get("reason_for_job_change"),
+                "extra_data": _parse_extra_data(user.get("extra_data")),
+                "role": user.get("role"),
+                "name": user.get("name"),
+                "email": user.get("email"),
+            },
+            headers=cors,
+        )
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    to_update = {}
+    if "linkedin_url" in payload:
+        url = (payload.get("linkedin_url") or "").strip()
+        if url and not url.lower().startswith(("http://", "https://")):
+            return JSONResponse(
+                {"error": "LinkedIn URL must start with http:// or https://"},
+                status_code=400,
+                headers=cors,
+            )
+        to_update["linkedin_url"] = url or None
+
+    if "github_url" in payload:
+        url = (payload.get("github_url") or "").strip()
+        if url and not url.lower().startswith(("http://", "https://")):
+            return JSONResponse(
+                {"error": "GitHub URL must start with http:// or https://"},
+                status_code=400,
+                headers=cors,
+            )
+        to_update["github_url"] = url or None
+
+    if "reason_for_job_change" in payload:
+        reason = (payload.get("reason_for_job_change") or "").strip()
+        to_update["reason_for_job_change"] = reason or None
+
+    if "extra_data" in payload:
+        extra = payload.get("extra_data")
+        to_update["extra_data"] = extra
+
+    if to_update:
+        storage.update_user_profile(sub, **to_update)
+
+    user = storage.get_user(sub) or {}
+    return JSONResponse(
+        {
+            "success": True,
+            "linkedin_url": user.get("linkedin_url"),
+            "github_url": user.get("github_url"),
+            "reason_for_job_change": user.get("reason_for_job_change"),
+            "extra_data": _parse_extra_data(user.get("extra_data")),
         },
         headers=cors,
     )
