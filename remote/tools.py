@@ -194,7 +194,6 @@ async def update_profile(
         "reason_for_job_change": user.get("reason_for_job_change"),
         "extra_data": _parse_extra_data(user.get("extra_data")),
     }
-    }
 
 
 @mcp.tool
